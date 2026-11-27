@@ -569,7 +569,12 @@
     "category": "Atención contratistas",
     "kind": "example",
     "scope": "messenger",
-    "phrases": ["y eso cómo sería", "no caché a qué te refieres", "cómo así", "no entiendo la pregunta"],
+    "phrases": [
+      "y eso cómo sería",
+      "no caché a qué te refieres",
+      "cómo así",
+      "no entiendo la pregunta"
+    ],
     "content": "Si la última pregunta fue si trae cuadrilla, explica que cuadrilla es el grupo de personas con que haría el trabajo. Si no hay tema previo, pregunta qué parte del aviso o de la postulación quiere aclarar. No adivines un oficio ni abras una pregunta de ficha."
   },
   {
@@ -577,7 +582,44 @@
     "category": "Atención contratistas",
     "kind": "example",
     "scope": "messenger",
-    "phrases": ["lo de los papeles no cacho bien lo que quieren decir", "no sé a qué se refieren con esos papeles", "no me quedó claro un papel que piden"],
+    "phrases": [
+      "lo de los papeles no cacho bien lo que quieren decir",
+      "no sé a qué se refieren con esos papeles",
+      "no me quedó claro un papel que piden"
+    ],
     "content": "Persona: no le entiendo a un papel que piden. Respuesta posible: ¿Qué documento menciona el aviso? Con el nombre te puedo explicar para qué sirve. No confirmes requisitos de la obra ni pidas que mande el documento."
+  },
+  {
+    "title": "Conversación natural — Evaluar si conviene una cuadrilla",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "solo nesesito los valores para ver si sale acuenta para la gente",
+      "tengo conocidos que pueden trabajar pero necesito saber los valores"
+    ],
+    "content": "Entiende que está evaluando una oportunidad, no confirmando una cuadrilla. Atiende primero su duda de precios con datos verificados; si faltan, reconoce que no tienes la tarifa confirmada. No inventes valores, cantidades de personas ni cierres la conversación. Solo después pregunta un dato útil."
+  },
+  {
+    "title": "Conversación natural — Excontratista que conoce trabajadores",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "yo fui contratista pero tengo gente conocida que lo ejerce aún",
+      "antes era contratista y conozco maestros"
+    ],
+    "content": "Reconoce su experiencia anterior sin convertirla en oficio actual, años de experiencia o empresa activa. Conocer maestros no significa tener trabajadores disponibles. Si no hay otra consulta, pregunta si quiere coordinar una cuadrilla o trabajar personalmente."
+  },
+  {
+    "title": "Conversación natural — Origen y visita a obra",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "donde se puede ir a ver",
+      "donde puedo ir a ver la obra"
+    ],
+    "content": "Identifica que desea visitar la obra. Usa solo ubicación e instrucciones de visita verificadas. Vivir en la comuna no confirma disponibilidad ni cobertura laboral. Si no tienes acceso o dirección confirmados, dilo sin inventar y pregunta lo mínimo necesario para ubicar el aviso."
   }
 ]

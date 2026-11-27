@@ -22,7 +22,9 @@ def plain(text: str) -> str:
 TRADES = {
     "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "gasfitero", "gafiter", "gasfítera", "gasfíteres", "maestro sanitario"),
     "Carpintería": ("carpintero", "carpintera", "carpinteros", "carpinteria", "carpinter", "carpintreo", "carpinterio", "mueblista", "mueblero"),
-    "Pintura": ("pintor", "pintora", "pintores", "pintura", "pinturas", "pinturero", "pintur"),
+    "Pintura": ("pintor", "pintora", "pintores", "pintura", "pinturas", "pinturero", "pintur", "pintura completa"),
+    "Yeso": ("yeso", "yesero", "yesera", "yesería"),
+    "Pasta muro": ("pasta muro", "pasta de muro", "pastamuro", "empastado"),
     "Albañilería": ("albanil", "albaniles", "albanileria", "albanir", "pandereta"),
     "Electricidad": ("electrico", "electrica", "electricista", "electricidad", "electricito", "eletricista", "electrisista"),
     "Aseo": ("aseo", "limpieza", "limpio"),
@@ -31,15 +33,19 @@ TRADES = {
     "Tabiquería": ("tabique", "tabiques", "tabiquero", "tabiqueria", "volcanita"),
     "Impermeabilización": ("impermeabilizacion", "impermeabilizar", "impermiabilizacion"),
     "Enfierradura": ("enfierrador", "enfierradura", "enfierador", "fierrero"),
+    "Hormigón vaciado y pulido": ("hormigon vacio y pulido", "hormigon vaciado y pulido", "hormigon vaciado pulido"),
     "Hormigonado": ("hormigon", "hormigonado", "hormigonero"),
     "Techumbres": ("techumbre", "techumbres", "techero", "techera", "cubiertas", "cubierta"),
     "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
     "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
     "Jardinería": ("jardinero", "jardinera", "jardineria", "paisajismo"),
     "Excavación": ("excavacion",),
-    "Terminaciones": ("terminaciones",),
+    "Terminaciones": ("terminaciones", "terminacion"),
+    "Movimiento de tierra": ("movimiento de tierra", "movimiento de tierras"),
+    "EIFS": ("eifs", "eif"),
+    "Textura": ("textura", "texturas", "texturado", "revestimiento texturado"),
     "Maquinaria": ("maquinaria",),
-    "Obras civiles": ("obras civiles",),
+    "Obras civiles": ("obras civiles", "construccion obras civiles", "construccion de obras civiles"),
 }
 
 
@@ -48,9 +54,9 @@ def is_pure_greeting(message: str) -> bool:
     value = plain(message)
     return bool(re.fullmatch(
         r"(?:hola+|ola+|buenas|buen dia|buenos dias|muy buenos dias|buenas tardes|muy buenas tardes|"
-        r"buenas noches|que tal|como estas|como estai|como estan|todo bien)"
+        r"buenas noches|buenas trades|que tal|como estas|como estai|como estan|todo bien)"
         r"(?: (?:galancito|buenos dias|buen dia|muy buenos dias|"
-        r"buenas tardes|muy buenas tardes|buenas noches|buenas|"
+        r"buenas tardes|muy buenas tardes|buenas trades|buenas noches|buenas|"
         r"que tal|como estas|como estai|como estan|todo bien))*",
         value,
     ))
@@ -293,6 +299,12 @@ def worksite_payment_terms_question(message: str) -> bool:
     return False
 
 
+def contextual_payment_question(message: str) -> bool:
+    """A question about job payment plus the sender's separate reason for asking."""
+    return (worksite_payment_terms_question(message) and
+            "?" in message and len(plain(declaration_text(message)).split()) >= 4)
+
+
 def worksite_details_question(message: str) -> bool:
     """Recognize questions about facts a specific job or advert must verify."""
     if worksite_payment_terms_question(message):
@@ -313,6 +325,9 @@ def payment_guidance(message: str) -> str | None:
         question = plain(message)
         if not re.search(r"\b(?:cuanto|cual es)\b", question):
             return None
+    if worksite_payment_terms_question(message):
+        return ("Todavía no tengo confirmada la modalidad de pago de esa obra. "
+                "Conviene revisar con el equipo encargado si es a trato, por jornada o de otra forma.")
     if _PAYMENT_QUESTION.search(question):
         return ("El monto y la forma de pago se acuerdan con quien contrata para cada obra. "
                 "Pide que te confirmen si pagan por avance, por jornada o con otra modalidad antes de aceptar.")

@@ -49,7 +49,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     patterns = {
         "additional_services": ("que otros trabajos", "que otros servicios", "que otros oficios"),
         "display_name": _NAME_PROMPTS,
-        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
+        "specialty": (*_TRADE_PROMPTS, "que trabajo hace", "que trabajo realiza", "que trabajos realiza", "que labores realizas", "que labores realiza", "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista", "tomas trabajos por tu cuenta", "tomar trabajos por tu cuenta", "ofreces servicios por tu cuenta", "buscas un empleo", "quieres un empleo"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
         "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla", "puedes llevar gente", "puedes llevar otras personas", "puedes traer gente", "puedes trabajar con mas gente", "trabajas por tu cuenta solo", "trabajarias solo"),
@@ -63,6 +63,10 @@ def intake_question_fields(prompt: str) -> set[str]:
         "contact_email": ("tu correo", "tu email"),
     }
     fields = {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
+    if re.search(r"\b(?:hace cuanto|desde hace cuanto|cuanto tiempo) (?:que )?(?:trabajas?|trabajan|llevas?|llevan|ejerces?|ejercen|eres|son)\b", value):
+        fields.add("experience")
+        if not re.search(r"\b(?:buscas|ofreces|quieres|prefieres)\b", value):
+            fields.discard("interest_type")
     if re.search(r"\b(?:(?:has trabajado|habias trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
                  r"(?:en|para|con) (?:(?:una |alguna )?obras? de )?|tienes experiencia (?:previa )?en )galilea\b", value):
         fields.add("worked_at_galilea")
@@ -280,7 +284,9 @@ def _commune_update(lead, message: str, previous: str) -> None:
 
 
 def _team_update(lead, value: str, previous: str) -> None:
-    capacity = _affirmed(value, ("puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
+    capacity = _affirmed(value, ("cuento con equipo", "cuento con un equipo", "cuento con equipo de trabajo",
+                                 "contamos con equipo", "tenemos equipo de trabajo", "tenemos un equipo",
+                                 "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
                                  "tengo una cuadrilla", "somos un equipo",
                                  "tengo ayudantes", "trabajamos varios", "puedo ir con gente"))
     # In “trabajo solo en Ñuñoa”, solo limits the work area.
@@ -456,8 +462,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     _commune_update(lead, statement, prev)
     _availability_update(lead, statement, prev, on_date=on_date)
     if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
-        experience = re.search(r"\b" + _COUNT + r"\s+(anos?|mes(?:es)?)\b", value)
-        asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
+        experience = re.search(r"\b" + _COUNT + r"\s*(anos?|mes(?:es)?)\b", value)
+        asked = "experience" in intake_question_fields(prior_prompt) or any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
         volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
                        and not re.search(r"\b(?:viviendo|residiendo)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (

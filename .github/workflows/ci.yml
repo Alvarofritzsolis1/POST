@@ -52,7 +52,9 @@ jobs:
     # Imagen estable para dependencias OCR/LibreOffice: evita los mirrors
     # resolute de Ubuntu latest que fallaron DNS en el runner anterior.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The full Docker suite can take over 20 minutes on hosted runners.
+    # Keep every test and the subsequent PDF/startup smoke checks enabled.
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16-alpine

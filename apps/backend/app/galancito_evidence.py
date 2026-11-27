@@ -83,6 +83,9 @@ def crew_mentions(value):
     for match in CREW_SPAN.finditer(value):
         text = match[0]
         prefix = value[:match.start()]
+        # Contacts with tradespeople are not an owned or available crew.
+        if re.search(r"\b(?:conozco|conocemos|conoci|conocimos|tengo conocidos|tengo amigos|conocemos a)\s*$", prefix):
+            continue
         if re.match(r" (?:contratad[oa]s?|con contrato)\b", value[match.end():]):
             continue
         if (re.search(r"\b(?:" + CREW_UNIT + r")$", text)

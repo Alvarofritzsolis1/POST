@@ -35,7 +35,7 @@ CHILE = ZoneInfo("America/Santiago")
 _PERSONAL_DECLARATION = re.compile(
     r"^(?:corrijo |aclaro |yo )*(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
     r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico|realizo|realizamos|vivo|resido|me muevo|"
-    r"mi cuadrilla|mi equipo)\b"
+    r"mi cuadrilla|mi equipo|cuento con|contamos con)\b"
 )
 
 
@@ -349,7 +349,13 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
 
 def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historical=False,
                             replay=False, aliases=None) -> bool:
-    if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
+    if not message:
+        return False
+    # Contact details are captured separately. Do not discard unrelated
+    # professional declarations simply because a message also contains a
+    # phone number or email. Continue with contact-redacted text only.
+    message = professional_message(message)
+    if not message.strip() or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
     context_changed = remember_declared_context(lead, message, prior, remote_id=remote_id, at=at,
                                                historical=historical or replay)

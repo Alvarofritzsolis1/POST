@@ -446,3 +446,318 @@ def test_invalid_model_draft_can_continue_after_the_work_commune_was_saved(netwo
     with sessions() as db:
         lead = db.scalar(select(FacebookLead))
         assert not lead.needs_support and not lead.ai_paused
+
+def test_legacy_scripted_trade_question_cannot_reach_meta(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, "Construcción obras civiles", mid="civil-works").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.state, job.body, job.ai_generated = "pending", "¿Qué trabajo realizas?", False
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (None, [], None), "fallback", {}, "invalid_reply",
+    ))
+    def unexpected(*args):
+        pytest.fail("A scripted question cannot be sent to Meta")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
+    assert process_chat_next(sessions)
+    with sessions() as db:
+        assert not db.scalar(select(FacebookLead)).needs_support
+
+
+def test_multiline_trade_list_is_saved_without_waiting_for_model(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    from app.facebook_crm_models import FacebookLeadTrade
+    message = "Movimiento de tierra\nAlbañilería\nCarpintería\nTerminación\nPintura\nEifs\nHormigón vacio Y pulido"
+    assert incoming(network, message, mid="seven-trades").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
+        assert trades == {"Movimiento de tierra", "Albañilería", "Carpintería", "Terminaciones", "Pintura", "EIFS", "Hormigón vaciado y pulido"}
+        assert not lead.ai_paused
+
+
+def test_paint_plaster_putty_and_eifs_across_messages_are_additive(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    from app.facebook_crm_models import FacebookLeadTrade
+    from app.galancito_links import trade_declarations
+    first = "Pintura completa yeso pasta muro pintura"
+    assert trade_declarations(first, "¿Usted qué trabajo realiza?") == {"Pintura": True, "Yeso": True, "Pasta muro": True}
+    assert trade_declarations("Y eif", allow_bare=True) == {"EIFS": True}
+    assert trade_declarations("¿Y eif?", allow_bare=True) == {}
+    assert trade_declarations("Mi hermano hace EIFS", allow_bare=True) == {}
+    assert incoming(network, first, mid="paint-plaster-putty").status_code == 200
+    assert incoming(network, "Y eif", mid="add-eifs").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
+        assert trades == {"Pintura", "Yeso", "Pasta muro", "EIFS"}
+        assert not lead.ai_paused
+
+    # Even if both Qwen drafting attempts are rejected, the verified additive
+    # trade is acknowledged without pausing Messenger or inventing an oficio.
+    delivered = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: delivered.append(args[2]) or "synthetic-trade-ack")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action", lambda *args: None)
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (Turn(i="intake", q="none", r="Perfecto.", d=[]), [], None),
+        "fallback", {}, "invalid_reply",
+    ))
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+    assert process_chat_next(sessions)
+    assert delivered == ["Perfecto, también anoté EIFS entre tus trabajos."]
+    with sessions() as db:
+        from app.galancito_knowledge_models import AssistantRun
+        assert not db.scalar(select(FacebookLead)).needs_support
+        run = db.scalar(select(AssistantRun).order_by(AssistantRun.created_at.desc()).limit(1))
+        assert run is not None and run.source == "local_recovery"
+        assert run.timings.get("model_error") is True
+        assert run.timings.get("verified_guidance") == "saved_trade_confirmation"
+
+
+def test_joined_experience_units_and_natural_operator_question(network, monkeypatch):
+    from app.galancito_intake import intake_question_fields
+    from app.galancito_memory import apply_messenger_message
+
+    sessions = configure(network, monkeypatch)
+    prompt = "Excelente hace cuanto trabajas como contratista?"
+    assert "experience" in intake_question_fields(prompt)
+    assert "interest_type" not in intake_question_fields(prompt)
+    assert "specialty" in intake_question_fields("¿Usted qué trabajo realiza?")
+    assert "specialty" in intake_question_fields("¿Qué labores realiza?")
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.ai_paused = True
+        lead.needs_support = True
+        assert apply_messenger_message(db, lead, "2años", prompt, remote_id="joined-experience",
+                                       at=utcnow())
+        assert lead.experience == "2 años"
+        apply_messenger_message(db, lead, "Formalmente", prompt, remote_id="formal-experience",
+                                at=utcnow())
+        assert lead.experience == "2 años"
+        assert lead.ai_paused
+
+    fragment = Fragment("joined-months", utcnow(), "6meses")
+    declaration = Declaration(f="experience", v="6 meses", e="6 meses")
+    assert supported_declarations([declaration], (fragment,), prior=prompt)
+    assert not supported_declarations([declaration], (fragment,), prior="¿Dónde vives?")
+
+def test_known_tradespeople_are_not_a_confirmed_crew():
+    from app.galancito_evidence import crew_mentions
+    from app.galancito_triage import plain
+    from app.galancito_contextual import supported_declarations
+
+    fragment = Fragment("synthetic-acquaintances", utcnow(), "Conozco varios maestros")
+    assert list(crew_mentions(plain(fragment.text))) == []
+    assert supported_declarations(
+        [Declaration(f="crew", v="varios maestros", e="varios maestros")],
+        (fragment,),
+    ) == []
+    assert supported_declarations(
+        [Declaration(f="team", v="yes", e="varios maestros")],
+        (fragment,),
+    ) == []
+
+
+def test_compound_payment_question_is_answered_without_guessing_terms(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    message = ("¿La pega es a trato o por día? "
+               "Quiero cachar si vale la pena antes de hablar con los maestros.")
+    replies = []
+    called = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: replies.append(args[2]) or "synthetic-payment-terms")
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [])
+    def draft(*args, **kwargs):
+        called.append(True)
+        return Turn(i="question", q="none",
+                    r="Primero hay que confirmar las condiciones de esa obra.", d=[])
+    monkeypatch.setattr("app.galancito_contextual.request_turn", draft)
+    assert incoming(network, message, mid="payment-context").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+    assert process_chat_next(sessions)
+    assert called and len(replies) == 1
+    assert "no tengo confirmada" in replies[0].lower()
+    assert "modalidad de pago" in replies[0].lower()
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.needs_support is False and lead.ai_paused is False
+
+def test_cuento_con_equipo_burst_does_not_force_human(network, monkeypatch):
+    """The production-style presentation cannot be lost to a drafting outage."""
+    from app.galancito_links import trade_terms
+    from app.galancito_triage import is_pure_greeting
+    from app.galancito_contextual import field_supported
+    assert is_pure_greeting("Buenas trades")
+    assert set(trade_terms("pintura yeso eifs textura completo")) == {
+        "Pintura", "Yeso", "EIFS", "Textura",
+    }
+    assert field_supported(
+        "team", "yes", "cuento con equipo de trabajo en ambas partidas", "", (),
+    )
+
+    sessions = configure(network, monkeypatch)
+    for i, line in enumerate((
+        "Hola", "Buenas trades",
+        "Le. Ablo por trabajo de pintura yeso eifs textura completo",
+        "Cuento con equipo de trabajo en ambas partidas",
+    ), start=1):
+        assert incoming(network, line, mid=f"contractor-burst-{i}").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.state == "ai_pending",
+        ))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+        lead = db.scalar(select(FacebookLead))
+        assert lead.team_available is True
+        assert lead.workers is None
+        assert not lead.needs_support
+
+    delivered = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: delivered.append(args[2]) or "contractor-team-ack")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action", lambda *args: None)
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (Turn(i="intake", q="none", r="Gracias.", d=[]), [], None),
+        "fallback", {}, "invalid_reply",
+    ))
+    assert process_chat_next(sessions)
+    assert len(delivered) == 1
+    # The model may ask about service-offer intent before the work commune.
+    # Both are legitimate missing fields. Neither should re-ask the known
+    # specialties/team or transfer the conversation to human attention.
+    from app.galancito_intake import intake_question_fields
+    asked = intake_question_fields(delivered[0])
+    assert asked & {"interest_type", "work_communes", "workers", "experience"}
+    assert not asked & {"specialty", "team_available"}
+    assert "atención humana" not in delivered[0].lower()
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert not lead.needs_support and not lead.ai_paused
+        assert lead.team_available is True and lead.workers is None
+
+
+def test_non_model_professional_presentation_does_not_auto_handoff(network, monkeypatch):
+    """An unconsented message must not invoke Qwen or turn into a human takeover."""
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.ai_consent = False
+        lead.ai_consent_state = "not_requested"
+        lead.ai_consent_provider = "disabled"
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_send",
+        lambda *args: "synthetic-intake-no-consent",
+    )
+    assert incoming(network, "Cuento con equipo de trabajo en ambas partidas",
+                    mid="team-no-consent").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.team_available is True and lead.workers is None
+        assert lead.needs_support is False
+        assert lead.ai_paused is False
+
+def test_team_declaration_after_an_advert_question_keeps_the_speaker_attribution(network, monkeypatch):
+    from app.galancito_memory import apply_messenger_message
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert apply_messenger_message(
+            db, lead, "Cuento con equipo de trabajo en ambas partidas",
+            "Claro, te ayudo. ¿De qué trabajo era el aviso?",
+            remote_id="speaker-team-followup", at=utcnow(),
+        )
+        assert lead.team_available is True
+        assert lead.workers is None
+        assert (lead.profile_sources or {}).get("team_available", {}).get("message_id") == "speaker-team-followup"
+
+def test_busy_qwen_queue_preserves_authorized_conversation(network, monkeypatch):
+    """A third contact must not be transferred to a person when two jobs wait."""
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        main = db.scalar(select(FacebookLead))
+        for i in (1, 2):
+            other = FacebookLead(
+                org_id=main.org_id, page_id=main.page_id, psid=f"synthetic-backlog-{i}",
+                ai_consent=True, ai_consent_provider="ollama", ai_consent_state="accepted",
+            )
+            db.add(other)
+            db.flush()
+            db.add(FacebookChatMessage(
+                org_id=main.org_id, lead_id=other.id, page_id=main.page_id,
+                direction="outbound", state="ai_pending", body="", ai_generated=True,
+            ))
+    assert incoming(network, "Cuento con equipo de trabajo en ambas partidas",
+                    mid="busy-queue-contact").status_code == 200
+    with sessions() as db:
+        main = db.scalar(select(FacebookLead).where(
+            FacebookLead.psid == "123456789012345",
+        ))
+        assert main.team_available is True and main.workers is None
+        assert not main.needs_support and not main.ai_paused
+        jobs = list(db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.state == "ai_pending",
+            FacebookChatMessage.direction == "outbound",
+        )))
+        assert len(jobs) == 3
+        assert any(job.lead_id == main.id for job in jobs)
+
+@pytest.mark.parametrize("whatsapp_label", ["watsap", "guasap", "wsp", "whatsapp"])
+def test_phone_and_two_trades_in_same_message_are_both_preserved(network, monkeypatch, whatsapp_label):
+    """A shared WhatsApp number cannot hide unrelated occupational statements."""
+    from app.facebook_crm_models import FacebookLeadTrade
+    from app.galancito_triage import private_data
+
+    sessions = configure(network, monkeypatch)
+    message = f"Mi {whatsapp_label} es 912345678, hago pintura y yeso"
+    assert private_data(message)
+    assert incoming(network, message, mid="contact-with-multiple-trades").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        found = set(db.scalars(select(FacebookLeadTrade.trade).where(
+            FacebookLeadTrade.lead_id == lead.id,
+            FacebookLeadTrade.active.is_(True),
+        )))
+        assert found == {"Pintura", "Yeso"}
+        assert lead.contact_phone
+        assert not lead.needs_support
+
+def test_qwen_schema_accepts_26_trades_plus_other_professional_fields():
+    from app.galancito_contextual import FORMAT
+    assert FORMAT["properties"]["d"]["properties"]["trade"]["maxItems"] == 26
+    fields = (
+        "origin", "area", "crew", "experience", "availability", "name",
+        "role", "team", "entity", "channel",
+    )
+    declarations = [Declaration(f="trade", v="Pintura", e="pintura") for _ in range(26)]
+    declarations += [Declaration(f=field, v="declarado", e="declarado") for field in fields]
+    turn = Turn(d=declarations, i="intake", q="none", r="Gracias por contarme.")
+    assert len(turn.d) == 36
+
+def test_referential_trade_phrase_cannot_be_persisted_even_if_qwen_returns_it(network, monkeypatch):
+    """'Ambas partidas' refers to known trades, not an additional specialty."""
+    from app.facebook_crm_models import FacebookLeadTrade
+
+    sessions = configure(network, monkeypatch)
+    fragment = Fragment("trade-reference", utcnow(), "Cuento con equipo de trabajo en ambas partidas")
+    proposed = [
+        Declaration(f="trade", v="ambas partidas", e="ambas partidas"),
+        Declaration(f="team", v="yes", e="cuento con equipo de trabajo"),
+    ]
+    accepted = supported_declarations(proposed, (fragment,))
+    assert [(field, value) for field, value, _ in accepted] == [("team", "yes")]
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        # Defense in depth: even a direct caller cannot add a referential trade.
+        assert apply_declarations(db, lead, [("trade", "ambas partidas", fragment)]) == 0
+        assert list(db.scalars(select(FacebookLeadTrade).where(
+            FacebookLeadTrade.lead_id == lead.id))) == []
+

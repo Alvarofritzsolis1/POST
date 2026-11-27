@@ -103,7 +103,7 @@ def trade_declarations(message: str, prior_prompt: str = "", *,
     if not message or len(message) > 3500 or private_data(message):
         return {}
     catalog, matcher = _trade_matcher(tuple((trade, tuple(aliases)) for trade, aliases in (extra or {}).items()))
-    direct = any(p in plain(prior_prompt) for p in ("oficio", "trabajo realizas", "trabajo haces", "trabajos haces", "servicio ofreces", "a que te dedicas", "en que trabajas"))
+    direct = any(p in plain(prior_prompt) for p in ("oficio", "trabajo realizas", "trabajo haces", "trabajos haces", "trabajo realiza", "trabajos realiza", "labores realizas", "labores realiza", "servicio ofreces", "a que te dedicas", "en que trabajas"))
     result = {}
     continuation = False
     for fragment in _TRADE_FRAGMENTS.split(declaration_text(message)):
@@ -120,7 +120,7 @@ def trade_declarations(message: str, prior_prompt: str = "", *,
             continue
         own = bool(_OWN_TRADE.search(norm))
         bare = bool(mentions and len(norm.split()) <= 9 and not re.search(r"[?¿]", message)
-                    and set(matcher.sub(" ", norm).split()) <= {"y", "e", "o", "de", "en", "tambien", "igual", "no"})
+                    and set(matcher.sub(" ", norm).split()) <= {"y", "e", "o", "de", "en", "tambien", "igual", "no", "completa", "completo", "completas", "completos"})
         negative = bool(_TRADE_NEGATIVE.search(norm))
         if not mentions:
             continuation = own and not negative

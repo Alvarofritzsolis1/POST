@@ -43,8 +43,9 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import (analyze, private_data, quick_reply, everyday_question_reply,
-                              application_ai_candidate, payment_guidance, worksite_payment_terms_question)
+from .galancito_triage import (analyze, plain, private_data, quick_reply, everyday_question_reply,
+                              application_ai_candidate, payment_guidance, worksite_payment_terms_question,
+                              contextual_payment_question)
 from .galancito_intake import (
     GALILEA_QUESTION, acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply, contact_followup_reply, contact_pending_questions,
@@ -543,6 +544,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif (not lead.needs_support and lead.ai_consent_state != "declined"
                     and not private_data(body) and worksite_payment_terms_question(body)):
                 reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                if not reply and contextual_allowed and contextual_payment_question(body):
+                    # Understand the objective with Qwen, but never invent payment terms.
+                    use_ai = True
             elif intake == GALILEA_QUESTION:
                 reply = intake
             elif contextual_turn:
@@ -579,29 +583,41 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 else:
                     reply = intake or quick_reply(body, known=facts)
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
-                flag_for_human(db, lead,
-                               "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                # A declaration about trades or an existing team is not a
+                # request for human support. The local, non-model intake path
+                # is permitted when Qwen is not authorized; never send the
+                # unconsented contact's messages to an external provider.
+                normalized = plain(body)
+                professional = (
+                    not signal and not private_data(body) and not needs_deeper_response(body)
+                    and (changed or bool(trade_terms(body))
+                         or ("equipo" in normalized and
+                             any(word in normalized for word in ("cuento con", "contamos con", "tenemos"))))
+                )
+                if professional:
+                    if lead.interest_type in (None, "", "unknown"):
+                        reply = ("Gracias por escribir. ¿Quieres ofrecer estos servicios "
+                                 "como contratista o buscas empleo?")
+                    elif not lead.work_communes:
+                        reply = "Gracias por contarme. ¿En qué comuna puedes trabajar?"
+                    else:
+                        reply = "Gracias, recibí la información y podemos continuar por aquí."
+                else:
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
             if use_ai and recent < 30 and ai_source != "disabled":
-                queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
-                    sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
-                queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
-                    FacebookChatMessage.org_id == lead.org_id,
-                    FacebookChatMessage.state == "ai_pending")) or 0
+                # Persist one queued model turn per contact. The worker owns
+                # execution capacity; a full *temporary* queue is not a reason
+                # to transfer a normal contractor conversation to a person.
+                # New inbound messages cancel/coalesce previous unsent jobs above.
                 if coalesced is not None:
                     coalesced.state, coalesced.updated_at = "ai_pending", received_at
-                elif queue_locked and queued < 2:
+                else:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="ai_pending",
                         body="", ai_generated=True, updated_at=received_at,
                     ))
-                elif reply:
-                    # Keep the safe local question if the bounded model queue is busy.
-                    db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="pending", body=reply[:550], ai_generated=False))
-                else:
-                    flag_for_human(db, lead,
-                                   "Cola del asistente ocupada; requiere revisión humana")
             elif reply and recent < 30:
                 db.add(FacebookChatMessage(
                     org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
