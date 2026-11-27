@@ -32,7 +32,7 @@ from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, digital_help_reply, is_worksite_question, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (
-    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, explain_permission, wants_human,
+    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, messenger_model_authorized, explain_permission, wants_human,
 )
 from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTradeGuide,
                                   FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace)
@@ -435,10 +435,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                                     prior_prompt=previous_question)
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
-            signal = "Prefirió atención humana y no autorizó IA externa"
+            signal = "Prefirió atención humana y rechazó el uso de IA"
         if (signal and not audio_received and not wants_human(body) and consent is not False
                 and not lead.ai_paused and not lead.needs_support and local_first_messenger(cfg)
-                and consented_for(lead, messenger_contact_ai_source(db, lead, cfg))):
+                and messenger_model_authorized(cfg, lead, messenger_contact_ai_source(db, lead, cfg))):
             signal = None  # Authorized Qwen gets a chance to explain before handoff.
         if signal:
             flag_for_human(db, lead, signal)
@@ -498,7 +498,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             # worksite facts and consent operations keep their verified path.
             if (direct and not (location or application or digital_help or phone_saved or phone_ack)
                     and direct == everyday_question_reply(body)
-                    and consented_for(lead, configured_source)):
+                    and messenger_model_authorized(cfg, lead, configured_source)):
                 direct = None
             # Let Qwen choose the next conversational question when authorized.
             application_model = bool(application and direct == application and not phone_saved and not phone_ack
@@ -506,14 +506,14 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                                      and local_first_messenger(cfg)
                                      and application_ai_candidate(body, previous_question))
             if (digital_help and direct == digital_help and not phone_ack and not signal
-                    and local_first_messenger(cfg) and consented_for(lead, configured_source)):
+                    and local_first_messenger(cfg) and messenger_model_authorized(cfg, lead, configured_source)):
                 direct = None
-            if application_model and consented_for(lead, configured_source):
+            if application_model and messenger_model_authorized(cfg, lead, configured_source):
                 direct = None
             else:
                 application_model = False
             contact_model = bool(phone_ack and direct and not signal and not lead.needs_support
-                and local_first_messenger(cfg) and consented_for(lead, configured_source)
+                and local_first_messenger(cfg) and messenger_model_authorized(cfg, lead, configured_source)
                 and contact_pending_questions(profile_facts(lead, changed=changed), previous_question))
             contact_fallback = direct if contact_model else None
             if contact_model:
@@ -572,7 +572,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif lead.needs_support:
                 # Conversaciones difíciles pasan a revisión humana.
                 reply = None
-            elif consented_for(lead, ai_source):
+            elif messenger_model_authorized(cfg, lead, ai_source):
                 if not (waiting_for_ai or consent_reply):
                     reply = intake
                 use_ai = not reply or model_intake_candidate(body, facts, previous_question, reply)
