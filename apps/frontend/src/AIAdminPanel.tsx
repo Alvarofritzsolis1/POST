@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowLeft, Bot, LayoutDashboard, MessageCircle, Zap } from "lucide-react";
+import { ArrowLeft, Bot, LayoutDashboard, MessageCircle, Zap, FileJson } from "lucide-react";
 import AIQualityOverview from "./AIQualityOverview";
 import MaxPowerPanel from "./MaxPowerPanel";
+import AIFeedbackPanel from "./AIFeedbackPanel";
 import "./ai-admin-panel.css";
 
 const MessengerSimulator = lazy(() => import("./MessengerSimulator"));
@@ -9,17 +10,19 @@ const AIConfiguration = lazy(() => import("./AIConfiguration"));
 const AIHumanAudit = lazy(() => import("./AIHumanAudit"));
 const GalancitoTraining = lazy(() => import("./GalancitoTraining"));
 
-type Section = "resumen" | "max-power" | "simulador";
+type Section = "resumen" | "max-power" | "simulador" | "sobrealimentacion";
 type Channel = "messenger" | "general";
 type Detail = "config" | "history" | "audit" | "learning" | null;
 const route: Record<Section, string> = {
   resumen: "/admin/ia",
+  sobrealimentacion: "/admin/ia/sobrealimentacion",
   "max-power": "/admin/ia/max-power",
   simulador: "/admin/ia/simulador-messenger",
 };
 
 export function resolveAIAdminPath(path: string): { section: Section; detail: Detail } {
   const clean = path.replace(/\/+$/, "");
+  if (clean.endsWith("/sobrealimentacion")) return {section:"sobrealimentacion", detail:null};
   if (clean.endsWith("/simulador-messenger")) return {section:"simulador", detail:null};
   if (clean.endsWith("/entrenamiento")) return {section:"max-power", detail:"history"};
   if (clean.endsWith("/aprendizaje")) return {section:"max-power", detail:"learning"};
@@ -62,6 +65,7 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
     {id:"resumen", label:"Resumen", icon:LayoutDashboard},
     {id:"simulador", label:"Simulador Messenger", icon:MessageCircle},
     {id:"max-power", label:"MAX POWER", icon:Zap},
+    {id:"sobrealimentacion", label:"Sobrealimentación", icon:FileJson},
   ];
   return <section className="ai-admin-panel" aria-label="Administración de inteligencia artificial">
     <header className="ai-admin-heading">
@@ -85,6 +89,7 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
           </section>
         </Suspense>}
       </>}
+      {section === "sobrealimentacion" && <AIFeedbackPanel/>}
       {section === "simulador" && <Suspense fallback={<p role="status">Abriendo el simulador…</p>}><MessengerSimulator/></Suspense>}
       {section === "max-power" && <>
         <MaxPowerPanel/>

@@ -1316,3 +1316,32 @@ def test_focused_messenger_epochs_are_synthetic_and_reproducible():
         RoundInput(profile="postulantes", focus="inventada")
     with pytest.raises(ValidationError):
         RoundInput(profile="postulantes", suite="live", focus="context")
+
+
+def test_feedback_export_admin_tenant_and_text_opt_in(ai_env):
+    from app.facebook_crm_models import FacebookLead, FacebookChatMessage
+    client, sessions, org_id = ai_env["client"], ai_env["sessions"], ai_env["org_id"]
+    endpoint = ROOT + "/red-obras/feedback-export"
+    assert client.get(endpoint).status_code == 401
+    signin(client, "resident")
+    assert client.get(endpoint).status_code == 403
+    signin(client)
+    with sessions.begin() as db:
+        other = db.scalar(select(Organization).where(Organization.id != org_id))
+        for owner, name, body in [(org_id, "Persona Prueba", "Soy Persona Prueba, gasfiter 2 años, whatsapp 987654321 correo prueba@example.cl"),
+                                  (other.id, "Persona Ajena", "NO_EXPORTAR_ORG_AJENA")]:
+            lead = FacebookLead(org_id=owner, page_id="page", psid=name, display_name=name, contact_phone="987654321")
+            db.add(lead)
+            db.flush()
+            db.add(FacebookChatMessage(org_id=owner, lead_id=lead.id, page_id="page", direction="inbound", body=body))
+    response = client.get(endpoint)
+    assert response.status_code == 200, response.text
+    assert response.json()["counts"]["messages"] == 1
+    assert response.json()["datasets"]["messages"][0]["body"] is None
+    assert response.json()["datasets"]["leads"][0]["phone_recorded"] is True
+    response = client.get(endpoint + "?include_text=true")
+    assert response.status_code == 200, response.text
+    assert "gasfiter 2 años" in response.text
+    for forbidden in ("987654321", "prueba@example.cl", "Persona Prueba", "NO_EXPORTAR_ORG_AJENA"):
+        assert forbidden not in response.text
+    assert response.headers["cache-control"] == "no-store"
