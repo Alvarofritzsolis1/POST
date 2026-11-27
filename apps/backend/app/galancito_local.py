@@ -215,7 +215,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
                       "reasoning_enabled": bool(thinking),
                       "response_model": reported_model if isinstance(reported_model, str) else None})
     record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
-    if (allow_training and isinstance(reported_model, str)
+    if (isinstance(reported_model, str)
             and reported_model.casefold() != payload["model"].casefold()):
         raise RuntimeError("Ollama devolvió un modelo distinto al solicitado")
     msg = result.get("message")
