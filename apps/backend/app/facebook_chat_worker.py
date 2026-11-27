@@ -436,6 +436,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
     source, timings, failed_ai = fast_source, {}, False
     typing_started = False
     graph_calls = 0
+    selected_draft = None
+    selected_provider = None
     try:
         if state == "ai_pending" and model_needed and not simulated:
             # The worker is actively handling this contact now. Do not claim
@@ -473,7 +475,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace.update(provider="local", verified_guidance="payment_terms")
             elif drafted and not (help_answer and "?" not in help_answer and "?" in drafted):
                 body = natural_messenger_reply(safe_ai_reply(drafted))
-                trace["model_draft_selected"] = True
+                selected_draft = body
+                selected_provider = "local_model" if source == "ai" else "external_model"
             elif help_answer:
                 body, source = help_answer, "local"
                 trace.update(provider="local", verified_guidance="clarification")
@@ -592,6 +595,13 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     timings = last_timings.get()
             if generated:
                 body = natural_messenger_reply(safe_ai_reply(generated))
+                if source == "ai" and should_model and drafted and generated == drafted:
+                    if trace.get("ai_route") == "external_fallback" or (ai_source != "ollama" and not simulated and not trace.get("local_first_attempted")):
+                        selected_provider = "external_model"
+                    elif timings.get("output_tokens", 0) and timings.get("local_model_calls", 0):
+                        selected_provider = "local_model"
+                    if selected_provider:
+                        selected_draft = body
             elif not model_needed:
                 # Never treat an empty permission-acceptance turn as a model
                 # outage or tell a greeting-only contact that humans were paged.
@@ -699,6 +709,19 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 return True
             if automated_reply:
                 current_job.state, current_job.updated_at = "sending", utcnow()
+        # Attribute the final text, not merely an earlier model invocation.
+        # Verified guidance, handoff or recovery may replace a valid model draft.
+        trace["model_draft_selected"] = bool(selected_provider and selected_draft == body)
+        if trace["model_draft_selected"]:
+            trace["reply_origin"] = selected_provider
+        elif requested_handoff or handoff_ack:
+            trace["reply_origin"] = "human_handoff"
+        elif source == "knowledge" or trace.get("verified_guidance"):
+            trace["reply_origin"] = "verified_guidance"
+        elif source in {"fallback", "local_recovery"}:
+            trace["reply_origin"] = "recovery"
+        else:
+            trace["reply_origin"] = "local_policy" if automated_reply else "manual"
         if simulated:
             result_id = "simulated-" + uuid4().hex
         else:
