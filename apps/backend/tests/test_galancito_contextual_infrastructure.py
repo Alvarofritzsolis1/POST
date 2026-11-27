@@ -742,3 +742,22 @@ def test_qwen_schema_accepts_26_trades_plus_other_professional_fields():
     turn = Turn(d=declarations, i="intake", q="none", r="Gracias por contarme.")
     assert len(turn.d) == 36
 
+def test_referential_trade_phrase_cannot_be_persisted_even_if_qwen_returns_it(network, monkeypatch):
+    """'Ambas partidas' refers to known trades, not an additional specialty."""
+    from app.facebook_crm_models import FacebookLeadTrade
+
+    sessions = configure(network, monkeypatch)
+    fragment = Fragment("trade-reference", utcnow(), "Cuento con equipo de trabajo en ambas partidas")
+    proposed = [
+        Declaration(f="trade", v="ambas partidas", e="ambas partidas"),
+        Declaration(f="team", v="yes", e="cuento con equipo de trabajo"),
+    ]
+    accepted = supported_declarations(proposed, (fragment,))
+    assert [(field, value) for field, value, _ in accepted] == [("team", "yes")]
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        # Defense in depth: even a direct caller cannot add a referential trade.
+        assert apply_declarations(db, lead, [("trade", "ambas partidas", fragment)]) == 0
+        assert list(db.scalars(select(FacebookLeadTrade).where(
+            FacebookLeadTrade.lead_id == lead.id))) == []
+
