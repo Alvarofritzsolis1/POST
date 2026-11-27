@@ -1506,3 +1506,23 @@ def test_inbox_recovery_pauses_unconfirmed_worksite_payment(network, monkeypatch
     assert result["messages_imported"] == 1 and result["replies_queued"] == 0
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["needs_support"] and lead["ai_paused"]
+
+
+def test_operator_suggests_contact_ack_during_human_attention(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, "Le dejo mi número para que me escriba +569 87654321", "contact-draft-test").status_code == 200
+    with n["Session"]() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.contact_phone == "+56987654321"
+        lead.ai_paused = True
+        lead.needs_support = True
+        lead_id = lead.id
+        db.commit()
+    result = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/suggest")
+    assert result.status_code == 200, result.text
+    draft = result.json()["draft"]
+    assert "Gracias" in draft and "?" in draft
+    assert "87654321" not in draft
+    with n["Session"]() as db:
+        assert db.get(FacebookLead, lead_id).ai_paused is True

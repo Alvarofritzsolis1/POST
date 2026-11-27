@@ -62,8 +62,9 @@ from .galancito_conversation_summary import (
 )
 from .galancito_phone import (
     QUESTION as CONTACT_PHONE_QUESTION, confirmed_phone_reply, introducing_phone_number,
-    normalize_mobile, phone_question_when_agreed,
+    normalize_mobile, phone_question_when_agreed, phone_shared_by_sender,
 )
+from .galancito_contact_email import email_shared_by_sender
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -1478,16 +1479,33 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.lead_id == lead.id,
         FacebookChatMessage.org_id == user.org_id).order_by(
         FacebookChatMessage.created_at.desc()).limit(8)))
-    if lead.needs_support:
-        return {"draft": reply_for_support(lead.support_reason or "Solicitó ayuda",
-                                           bool(lead.specialty)),
-                "source": "help_first", "requires_review": True,
-                "alert_admin": True}
     latest_inbound = next((m.body for m in messages if m.direction == "inbound"
                            and m.consent_decision is None), "")
     facts = profile_facts(lead)
     previous_question = next((m.body for m in messages if m.direction == "outbound"
                               and m.state == "sent"), "")
+    # Operator drafts remain available during human attention; never send automatically.
+    if not private_data(professional_message(latest_inbound)):
+        shared_phone = phone_shared_by_sender(latest_inbound, previous_question)
+        shared_email = email_shared_by_sender(latest_inbound, previous_question)
+        if shared_phone or shared_email:
+            ack = confirmed_phone_reply(lead, latest_inbound, previous_question)
+            if ack:
+                draft = contact_followup_reply(ack, facts, previous_question)
+                if "?" not in draft and not lead.specialty:
+                    draft = "Gracias, ya tengo tu número de contacto. ¿Qué trabajo realizas?"
+            elif shared_phone and lead.contact_phone and shared_phone != lead.contact_phone:
+                draft = "Gracias por escribir. ¿Quieres que usemos el número que acabas de enviar para coordinar?"
+            elif shared_email and shared_email == lead.contact_email:
+                draft = "Gracias, ya tengo tu correo. ¿Qué necesitas coordinar?"
+            else:
+                draft = "Gracias por dejar tu contacto. ¿Qué necesitas coordinar?"
+            return {"draft": draft, "source": "template", "requires_review": True}
+    if lead.needs_support:
+        return {"draft": reply_for_support(lead.support_reason or "Solicitó ayuda",
+                                           bool(lead.specialty)),
+                "source": "help_first", "requires_review": True,
+                "alert_admin": True}
     if location := worksite_reply(db, lead, latest_inbound, previous_question):
         return {"draft": location, "source": "template", "requires_review": True}
     intake = next_intake_reply(latest_inbound, facts, previous_question)

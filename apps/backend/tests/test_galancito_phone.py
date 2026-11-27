@@ -78,3 +78,19 @@ def test_phone_ack_only_for_committed_matching_contact():
     assert confirmed_phone_reply(lead, "+56912345678") is None
     assert confirmed_phone_reply(contact(), "+56987654321") is None
     assert "87654321" not in CONTACT_ACK
+
+
+def test_voluntary_contact_is_not_a_privacy_warning():
+    from app.galancito_triage import quick_reply, private_data
+    from app.galancito_flow import grounded_reply
+    from app.galancito_memory import messenger_prompt_text
+    message = "Le dejo mi número para que me escriba +569 87654321"
+    assert phone_shared_by_sender(message) == "+56987654321"
+    assert private_data(message)
+    assert "Gracias" in quick_reply(message)
+    assert "87654321" not in quick_reply(message)
+    assert "Gracias" in quick_reply("Mi correo es maestro@example.invalid")
+    legacy = "No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
+    assert not messenger_prompt_text(legacy)
+    assert grounded_reply(legacy, message) is None
+    assert "87654321" not in messenger_prompt_text(message)
