@@ -78,22 +78,18 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     actual_inference = metrics.get("inference_samples_ms", [])
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
     evidence_type = metrics.get("evidence_type", "synthetic")
-    score_basis = "weighted_dimensions"
-    if profile == "interno":
-        # Transparent share of fully passing cases, rather than a composite
-        # which counted correlated dimensions as independent evidence.
-        score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
-        score_basis = ("verified_numeric_case_pass_rate" if evidence_type == "live_database"
-                       else "synthetic_case_pass_rate")
-    elif evidence_type == "live_database":
-        score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
-        score_basis = "verified_numeric_case_pass_rate"
+    # Never present correlated dimension scores as fully successful cases.
+    dimension_score = score
+    score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
+    score_basis = ("verified_numeric_case_pass_rate" if evidence_type == "live_database"
+                   else "synthetic_case_pass_rate")
     return {
         "case_pass_interval_95": case_confidence(metrics.get("passed", 0), cases),
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
-        "dimensions": ratios, "score": score, "score_basis": score_basis,
+        "dimensions": ratios, "dimension_score": dimension_score,
+        "score": score, "score_basis": score_basis,
         "cycles": metrics.get("cycles", {}), "early_stop": metrics.get("early_stop"),
         "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
         "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
