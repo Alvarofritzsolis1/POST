@@ -157,14 +157,36 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
     fields = {key: val for key, val in facts.items()
               if key not in {"display_name", "turn_changed", "manual_fields"}
               and val not in (None, "", [], {}, "unknown")}
-    lines = ["Ficha acumulada: " + json.dumps(fields, ensure_ascii=False)]
+    # Preserve complete facts, the prior question and verified reference before
+    # optional history/examples. Never cut a JSON field in half.
+    budget = 1650
+    lines = []
+    def add(line):
+        if len("\n".join([*lines, line])) > budget:
+            return False
+        lines.append(line)
+        return True
+
+    if prior and not private_data(prior) and (text := messenger_prompt_text(prior)):
+        add("Pregunta anterior de GALANT: " + text[:160])
     declared_context = facts.get("declared_context", {})
     if declared_context.get("notice_trade"):
-        lines.append("notice_trade describe el aviso consultado. No confirma el oficio propio.")
+        add("notice_trade describe el aviso consultado. No confirma el oficio propio.")
     if declared_context.get("additional_services_pending"):
-        lines.append("Dijo que hace otros trabajos. Pregunta cuáles si es útil. Conserva sus oficios declarados.")
+        add("Dijo que hace otros trabajos. Pregunta cuáles si es útil. Conserva sus oficios declarados.")
     if "worked_at_galilea" in declared_context:
-        lines.append("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
+        add("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
+    if evidence and (text := messenger_prompt_text(evidence_context(evidence[:1]))):
+        add("Referencia de GALANT: " + text[:450])
+    if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
+        add("Orientación aprobada: " + text[:300])
+
+    packed = {}
+    for field, value in fields.items():
+        trial = {**packed, field: value}
+        if len("\n".join([*lines, "Ficha acumulada: " + json.dumps(trial, ensure_ascii=False)])) <= budget:
+            packed = trial
+    add("Ficha acumulada: " + json.dumps(packed, ensure_ascii=False))
     current_ids = {item.message_id for item in fragments}
     recent = []
     for item in turns:
@@ -172,25 +194,20 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
             continue
         text = messenger_prompt_text(item.body)
         if text and not private_data(text):
-            recent.append(("Persona: " if item.direction == "inbound" else "GALANT: ") + text[:130])
+            candidate = [*recent, ("Persona: " if item.direction == "inbound" else "GALANT: ") + text[:130]]
+            line = "Historial anterior: " + " | ".join(reversed(candidate))
+            if len("\n".join([*lines, line])) > budget:
+                break
+            recent = candidate
         if len(recent) >= 5:
             break
     if recent:
-        lines.append("Historial anterior: " + " | ".join(reversed(recent)))
-    if prior and not private_data(prior) and (text := messenger_prompt_text(prior)):
-        lines.append("Pregunta anterior de GALANT: " + text[:160])
-    if evidence and (text := messenger_prompt_text(evidence_context(evidence[:1]))):
-        lines.append("Referencia de GALANT: " + text[:450])
-    if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
-        lines.append("Orientación aprobada: " + text[:300])
-    context = "\n".join(lines)
+        add("Historial anterior: " + " | ".join(reversed(recent)))
     example = next((sample for fragment in reversed(fragments)
                     if (sample := conversation_example(fragment.text, prior))), "")
     if example:
-        coaching = "\nEjemplo de práctica, no información de la obra: " + example
-        if len(context) + len(coaching) <= 1650:
-            context += coaching
-    return context[:1650], len(recent)
+        add("Ejemplo de práctica, no información de la obra: " + example)
+    return "\n".join(lines), len(recent)
 
 
 def request_attribution(fragments, options):
