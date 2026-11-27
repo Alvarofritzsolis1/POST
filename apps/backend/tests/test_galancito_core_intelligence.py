@@ -253,3 +253,51 @@ def test_rejects_question_about_already_known_field_with_specific_reason():
     assert validated_reply(draft, {"experience": "7 años"}, [], fragment.text,
                            (fragment,), rejections=reasons) is None
     assert reasons == ["known_question_experience"]
+
+
+def test_recovery_full_history_latest_correction_and_negated_trade(network, monkeypatch):
+    from app.models import utcnow
+    from app.galancito_links import canonical_trade
+    from app.facebook_crm_models import FacebookLeadTrade
+    org_id = enable_messaging(network, monkeypatch)
+    at = utcnow() - timedelta(days=2)
+    with network["Session"].begin() as db:
+        lead = FacebookLead(org_id=org_id, page_id=settings().facebook_page_id,
+                            psid="123456789012345")
+        db.add(lead)
+        db.flush()
+        ident = lead.id
+        messages = [("old-trade", "Hago pintura"), ("old-exp", "Soy contratista hace 5 años"),
+                    ("old-phone", "Mi WhatsApp es 987654321")]
+        messages += [(f"filler-{i}", "Gracias") for i in range(205)]
+        messages += [("correction-exp", "Corrijo, llevo 12 años de experiencia"),
+                     ("negated-trade", "No hago pintura"),
+                     ("new-trade", "Hago carpintería")]
+        for i, (remote_id, body) in enumerate(messages):
+            stamp = at + timedelta(seconds=i)
+            db.add(FacebookChatMessage(org_id=org_id, lead_id=ident, page_id=lead.page_id,
+                                       remote_id=remote_id, direction="inbound", state="received",
+                                       body=body, created_at=stamp, updated_at=stamp))
+    base = f"/facebook/leads/{ident}/refresh-profile"
+    preview = network["send"](network["admin"], base + "?dry_run=true", {})
+    assert preview.status_code == 200, preview.text
+    report = preview.json()
+    assert report["messages_examined"] == len(messages) and report["history_truncated"] is False
+    assert report["changes"]["experience"]["after"] == "12 años"
+    assert report["evidence"]["experience"] == "correction-exp"
+    assert report["evidence"]["phone_recorded"] == "old-phone"
+    assert canonical_trade("pintura") not in report["changes"]["trades"]["after"]
+    assert canonical_trade("carpintería") in report["changes"]["trades"]["after"]
+    assert report["trade_evidence"][canonical_trade("pintura")] == {
+        "message_id": "negated-trade", "active": False, "source": "message"}
+    assert report["evidence"]["trades." + canonical_trade("carpintería")] == "new-trade"
+    with network["Session"]() as db:
+        assert not db.get(FacebookLead, ident).experience
+        assert not db.get(FacebookLead, ident).contact_phone
+        assert not list(db.scalars(select(FacebookLeadTrade).where(FacebookLeadTrade.lead_id == ident)))
+    applied = network["send"](network["admin"], base, {})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["experience"] == "12 años"
+    repeated = network["send"](network["admin"], base + "?dry_run=true", {})
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["changes"] == {}

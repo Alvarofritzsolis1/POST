@@ -54,6 +54,7 @@ from .galancito_intake import (
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
     prior_delivered_prompt, professional_message, profile_facts, messenger_context, recover_missing_contact,
+    iter_recovery_messages, recovery_scope,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
@@ -1170,19 +1171,14 @@ def recover_contact_fields(lead_id: str, user: User = Depends(administrator),
 
 
 def _replay_declared_profile(db, lead):
-    """Bounded local recovery, with no replies or external calls."""
-    recover_missing_contact(db, lead)
-    rows = list(db.scalars(select(FacebookChatMessage).where(
-        FacebookChatMessage.org_id == lead.org_id,
-        FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(201)))
-    truncated = len(rows) > 200
-    messages = sorted(rows[:200], key=lambda item: (
-        aware(item.updated_at if item.direction == "outbound" and item.state == "sent"
-              else item.created_at), item.id))
+    """Recover all persisted messages in bounded pages, without replies or external calls."""
+    recovery = recovery_scope(db, lead)
+    recover_missing_contact(db, lead, full_history=True)
     previous_question, question_at = "", None
     aliases = approved_trade_aliases(db, lead.org_id)
-    for item in messages:
+    count = 0
+    for item in iter_recovery_messages(db, lead):
+        count += 1
         if item.direction == "outbound":
             if item.state == "sent":
                 previous_question, question_at = item.body or "", aware(item.updated_at)
@@ -1192,9 +1188,10 @@ def _replay_declared_profile(db, lead):
             if item.consent_decision is None:
                 apply_messenger_message(db, lead, item.body or "", prior,
                                         remote_id=item.remote_id, at=at,
-                                        replay=True, aliases=aliases)
+                                        replay=True, aliases=aliases, recovery=recovery)
             previous_question, question_at = "", None
-    return {"messages_examined": len(messages), "history_truncated": truncated}
+    return {"messages_examined": count, "history_truncated": False,
+            "history_scope": "persisted_messenger_messages", "page_size": 200}
 
 
 def _recovery_snapshot(db, lead):
@@ -1226,13 +1223,26 @@ def refresh_declared_profile(lead_id: str, dry_run: bool = False,
             sources = lead.profile_sources or {}
             evidence = {key: sources[key].get("message_id") for key in changed
                         if isinstance(sources.get(key), dict)}
+            for key, field in (("phone_recorded", "contact_phone"), ("email_recorded", "contact_email")):
+                if key in changed:
+                    evidence[key] = (sources.get(field) or {}).get("message_id")
+            trade_evidence = {row.trade: {"message_id": row.source_remote_id, "active": row.active,
+                                          "source": row.source}
+                              for row in db.scalars(select(FacebookLeadTrade).where(
+                                  FacebookLeadTrade.org_id == lead.org_id,
+                                  FacebookLeadTrade.lead_id == lead.id))}
+            for trade in set(before["trades"]) ^ set(after["trades"]):
+                evidence["trades." + trade] = (trade_evidence.get(trade) or {}).get("message_id")
+            if "contact_available" in changed:
+                evidence["contact_available"] = [evidence[key] for key in ("phone_recorded", "email_recorded")
+                                                 if evidence.get(key)]
             evidence.update({"declared_context." + key: entry.get("message_id")
                              for key, entry in (sources.get("_declared_context") or {}).items()
                              if isinstance(entry, dict) and
                              before.get("declared_context", {}).get(key) !=
                              after.get("declared_context", {}).get(key)})
             result = {"dry_run": True, "lead_id": lead_id, **coverage,
-                      "changes": changed, "evidence": evidence}
+                      "changes": changed, "evidence": evidence, "trade_evidence": trade_evidence}
         finally:
             savepoint.rollback()
         return result

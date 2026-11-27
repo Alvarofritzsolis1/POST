@@ -5,9 +5,9 @@ import re
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, or_, select
 
-from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide
+from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .galancito_intake import (
     UNKNOWN_NAMES, apply_intake, conversation_context, intake_question_fields, needs_deeper_response,
     requested_relative_start, unanswered_intake_question,
@@ -22,7 +22,7 @@ from .galancito_contact_email import redact_email_for_intake, remember_shared_em
 from .galancito_phone import (
     labeled_whatsapp_phone, phone_declined, phone_shared_by_sender, redact_mobile_for_intake, remember_shared_phone,
 )
-from .galancito_links import advertised_trade, audit_event, record_declared_trades, trade_declarations, trade_terms
+from .galancito_links import advertised_trade, audit_event, canonical_trade, record_declared_trades, trade_declarations, trade_terms
 from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
                               analyze, asks_about_application, declaration_text, plain, private_data, referring_to_application,
                               ambiguous_application_role, TRADE_CONFIRMATIONS, contractor_trade_question)
@@ -106,7 +106,57 @@ def capture_voluntary_contact(db, lead, message, prior, *, at, remote_id):
     return phone_saved, email_saved
 
 
-def recover_missing_contact(db, lead):
+def iter_recovery_messages(db, lead, *, newest_first=False, inbound_only=False, full_history=True):
+    """Page the persisted conversation in a stable order, scoped to tenant/page/contact."""
+    stamp = (FacebookChatMessage.created_at if inbound_only else case(
+        (and_(FacebookChatMessage.direction == "outbound", FacebookChatMessage.state == "sent"),
+         FacebookChatMessage.updated_at), else_=FacebookChatMessage.created_at))
+    criteria = [FacebookChatMessage.org_id == lead.org_id,
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.page_id == lead.page_id]
+    if inbound_only:
+        criteria.append(FacebookChatMessage.direction == "inbound")
+    order = (stamp.desc(), FacebookChatMessage.id.desc()) if newest_first else (stamp.asc(), FacebookChatMessage.id.asc())
+    cursor = None
+    while True:
+        query = select(FacebookChatMessage, stamp).where(*criteria)
+        if cursor is not None:
+            at, ident = cursor
+            advance = stamp < at if newest_first else stamp > at
+            next_id = FacebookChatMessage.id < ident if newest_first else FacebookChatMessage.id > ident
+            query = query.where(or_(advance, and_(stamp == at, next_id)))
+        rows = db.execute(query.order_by(*order).limit(200)).all()
+        if not rows:
+            break
+        for item, timestamp in rows:
+            yield item
+        if len(rows) < 200 or not full_history:
+            break
+        item, timestamp = rows[-1]
+        cursor = (timestamp, item.id)
+
+
+def recovery_scope(db, lead):
+    """Freeze valid pre-existing facts; only replay-created facts may be corrected."""
+    sources = lead.profile_sources or {}
+    protected = set()
+    for field in FIELDS:
+        value = getattr(lead, field)
+        origin = sources.get(field) or {}
+        if field == "display_name" and value in UNKNOWN_NAMES and not lead.name_opt_out and origin.get("state") != "rechazado_por_usuario":
+            continue  # Explicit refresh may restore a cleared name.
+        if ((field != "name_opt_out" and _known(field, value)) or
+                (field == "name_opt_out" and value) or origin.get("source") == "manual" or
+                origin.get("state") == "rechazado_por_usuario"):
+            protected.add(field)
+    rows = db.scalars(select(FacebookLeadTrade).where(
+        FacebookLeadTrade.org_id == lead.org_id, FacebookLeadTrade.lead_id == lead.id)).all()
+    return {"fields": protected, "context": set(sources.get("_declared_context") or {}),
+            "trades": {plain(canonical_trade(row.trade)) for row in rows},
+            "inactive_trades": {plain(canonical_trade(row.trade)) for row in rows if not row.active}}
+
+
+def recover_missing_contact(db, lead, *, full_history=False):
     """Restore missing contact fields from the newest explicit inbound evidence.
 
     No inference, no external calls, no reply, no override of manual edits or
@@ -119,11 +169,8 @@ def recover_missing_contact(db, lead):
                          sources.get("contact_email", {}).get("source") == "manual")
     if not (phone_pending or email_pending):
         return False
-    rows = db.scalars(select(FacebookChatMessage).where(
-        FacebookChatMessage.org_id == lead.org_id,
-        FacebookChatMessage.lead_id == lead.id,
-        FacebookChatMessage.direction == "inbound",
-    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200))
+    rows = iter_recovery_messages(db, lead, newest_first=True, inbound_only=True,
+                                  full_history=full_history)
     recovered = False
     for item in rows:
         if not (phone_pending or email_pending):
@@ -240,6 +287,8 @@ def _known(field, value):
 def prior_delivered_prompt(db, lead, *, at, since=None) -> str:
     criteria = [
         FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.org_id == lead.org_id,
+        FacebookChatMessage.page_id == lead.page_id,
         FacebookChatMessage.direction == "outbound",
         FacebookChatMessage.state == "sent",
         FacebookChatMessage.updated_at <= at,
@@ -271,7 +320,7 @@ _GALILEA_WORK = re.compile(
 )
 
 
-def remember_declared_context(lead, message, prior, *, remote_id, at, historical=False):
+def remember_declared_context(lead, message, prior, *, remote_id, at, historical=False, protected_context=None):
     """Persist bounded, evidence-linked declarations, not guesses or work coverage."""
     personal = ", ".join(personal_statements(message))
     value = plain(personal)
@@ -329,12 +378,14 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
     changed = False
     for field, fact in proposed.items():
         old = current.get(field) or {}
-        if old.get("source") == "manual":
+        if old.get("source") == "manual" or (protected_context is not None and field in protected_context):
+            continue
+        if protected_context is not None and old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
             continue
         if field in {"worked_at_galilea", "notice_trade", "additional_services_pending"}:
             if old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
                 continue
-        elif "value" in old and (historical or old["value"] == fact):
+        elif "value" in old and ((historical and protected_context is None) or old["value"] == fact):
             continue
         state = "rechazado_por_usuario" if fact is None else "confirmado_por_declaracion"
         if field == "worked_at_galilea" and fact is not None and old.get("value") is not None:
@@ -348,7 +399,7 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
 
 
 def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historical=False,
-                            replay=False, aliases=None) -> bool:
+                            replay=False, aliases=None, recovery=None) -> bool:
     if not message:
         return False
     # Contact details are captured separately. Do not discard unrelated
@@ -358,7 +409,8 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     if not message.strip() or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
     context_changed = remember_declared_context(lead, message, prior, remote_id=remote_id, at=at,
-                                               historical=historical or replay)
+                                               historical=historical or replay,
+                                               protected_context=recovery["context"] if recovery is not None else None)
     if not historical and not replay:
         confirmed = consume_confirmation(lead, message, prior)
         if confirmed:
@@ -412,6 +464,10 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         message = personal
     declarations = trade_declarations(message, prior, extra=aliases,
         allow_bare=not asking_about_notice and not application_role_question(prior))
+    if recovery is not None:
+        # An inactive trade already present before recovery must not be resurrected.
+        declarations = {trade: present for trade, present in declarations.items()
+                        if plain(canonical_trade(trade)) not in recovery["inactive_trades"]}
     before = {field: getattr(lead, field) for field in FIELDS}
     candidate = SimpleNamespace(**before, specialty_source=lead.specialty_source)
     apply_intake(candidate, message, prior, declarations=declarations,
@@ -432,13 +488,17 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                                 and not lead.name_opt_out
                                 and origin.get("state") != "rechazado_por_usuario"
                                 and _known(field, value))
-        if ((origin.get("source") == "manual" and not restore_cleared_name) or
-                ((historical or replay) and known and field not in {"work_communes", "work_area"})):
-            continue
-        if (historical or replay) and field in {"work_area", "work_communes"} and known:
-            # An older declaration may supply a missing area, but cannot widen
-            # or reverse a later destination correction.
-            continue
+        if recovery is not None:
+            if field in recovery["fields"] or (origin.get("source") == "manual" and not restore_cleared_name):
+                continue
+            if field == "display_name" and lead.name_opt_out and not candidate.name_opt_out:
+                continue
+        else:
+            if ((origin.get("source") == "manual" and not restore_cleared_name) or
+                    ((historical or replay) and known and field not in {"work_communes", "work_area"})):
+                continue
+            if (historical or replay) and field in {"work_area", "work_communes"} and known:
+                continue
         accepted[field] = value
     team = accepted.get("team_available", before["team_available"])
     workers = accepted.get("workers", before["workers"])
@@ -455,14 +515,20 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     if employee_count is not None and employees is not (employee_count > 0):
         accepted.pop("has_employees", None)
         accepted.pop("employee_count", None)
+    if recovery is not None and accepted.get("name_opt_out") is True and "display_name" not in recovery["fields"]:
+        # Do not restore a name when a later message refuses it.
+        accepted["display_name"] = "Interesado de Facebook"
     for field, value in accepted.items():
         setattr(lead, field, value)
     changed = list(accepted)
     active, trades_changed = record_declared_trades(db, lead, message, remote_id=remote_id,
-                                     declarations=declarations, historical=historical or replay, at=at)
+                                     declarations=declarations, historical=historical or replay, at=at,
+                                     recovery_protected=recovery["trades"] if recovery is not None else None)
     if "specialty" in changed:
         lead.specialty_source = candidate.specialty_source
-    elif (not historical and not replay and lead.specialty and lead.specialty_source == "message"
+    elif (((not historical and not replay) or
+           (recovery is not None and "specialty" not in recovery["fields"])) and
+          lead.specialty and lead.specialty_source == "message"
           and prior_sources.get("specialty", {}).get("source") != "manual"
           and declarations.get(lead.specialty) is False and lead.specialty not in active):
         lead.specialty = active[0][:100] if active else ""
