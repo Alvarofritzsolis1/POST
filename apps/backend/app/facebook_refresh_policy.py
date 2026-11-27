@@ -14,6 +14,11 @@ def refresh_retry_allowed(state, error, updated_at, now):
         return False
     if state != "failed":
         return True
+    # Meta/proxies may omit a JSON error code on authentication failures.
+    # Waiting cannot repair credentials or permissions, even without code 190.
+    http = re.search(r"HTTP (\d{3})\b", error or "")
+    if http and int(http[1]) in {401, 403}:
+        return False
     code = re.search(r"código Meta (\d+)", error or "")
     subcode = re.search(r"subcódigo (\d+)", error or "")
     if code:

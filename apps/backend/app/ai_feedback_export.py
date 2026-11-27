@@ -208,20 +208,30 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
     result["max_power_state"] = [{key: getattr(state, key) for key in ("enabled", "worker_seen_at", "last_tick_at", "on_seconds", "sessions", "experiments", "examined_cases", "lab_gains", "regressions", "active_round_id", "last_round_id", "last_status", "updated_at")}] if state else []
     policy = db.get(AIOrchestration, user.org_id)
     cfg = settings()
-    runtime = {key: getattr(cfg, key) for key in ("facebook_local_processing_authorized", "facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
-    message_ids = {row["id"] for row in result["messages"]}
-    coverage = {"messenger_runs": sum(row["channel"] == "messenger" for row in result["runs"]),
-                "runs_linked_to_exported_message": sum(row["channel"] == "messenger" and row["timings"].get("outbound_message_id") in message_ids for row in result["runs"]),
-                "runs_with_trace_v2": sum(row["timings"].get("trace_version", 0) >= 2 for row in result["runs"]),
+    runtime = {key: getattr(cfg, key) for key in ("facebook_local_processing_authorized", "facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_ai_model", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
+    messenger_runs = [row for row in result["runs"] if row["channel"] == "messenger"]
+    outbound_ids = {row["id"] for row in result["messages"] if row["direction"] == "outbound"}
+    sent_ids = {row["id"] for row in result["messages"] if row["direction"] == "outbound" and row["state"] == "sent"}
+    coverage = {"messenger_runs": len(messenger_runs),
+                "runs_linked_to_exported_message": sum(row["timings"].get("outbound_message_id") in outbound_ids for row in messenger_runs),
+                "runs_linked_to_sent_message": sum(row["timings"].get("outbound_message_id") in sent_ids for row in messenger_runs),
+                "runs_with_trace_v2": sum(row["timings"].get("trace_version", 0) >= 2 for row in messenger_runs),
                 "profile_sources_linked": sum(bool(v["message_id"]) for row in result["leads"] for v in row["field_provenance"].values()),
                 "profile_sources_recorded": sum(v["source_message_recorded"] for row in result["leads"] for v in row["field_provenance"].values())}
     findings = {
         "messages_with_recorded_error": sum(row["error_recorded"] for row in result["messages"]),
+        "failed_outbound_messages": sum(row["direction"] == "outbound" and row["state"] == "failed" for row in result["messages"]),
+        "failed_publication_jobs": sum(row["state"] == "failed" for row in result["publication_jobs"]),
+        "failed_publication_refreshes": sum(row["state"] == "failed" and row["action"] == "refresh" for row in result["publication_jobs"]),
         "leads_missing_profile_fields": sum(bool(row["profile_completion"]["missing"]) for row in result["leads"]),
         "leads_needing_support": sum(row["needs_support"] for row in result["leads"]),
+        "leads_ai_paused": sum(row["ai_paused"] for row in result["leads"]),
         "runs_reported_incorrect": sum(row["feedback"] == "incorrect" for row in result["runs"]),
         "runs_with_fallback": sum(row["source"] == "fallback" for row in result["runs"]),
+        "messenger_runs_with_fallback": sum(row["source"] == "fallback" for row in messenger_runs),
+        "red_obras_runs_with_fallback": sum(row["source"] == "fallback" and row["channel"] == "red_obras" for row in result["runs"]),
         "runs_without_message_link": sum(row["channel"] == "messenger" and not row["timings"].get("outbound_message_id") for row in result["runs"]),
+        "runs_with_unavailable_message_link": sum(bool(row["timings"].get("outbound_message_id")) and row["timings"].get("outbound_message_id") not in outbound_ids for row in messenger_runs),
     }
     payload = {
         "schema_version": 2, "version": VERSION, "source_commit": SOURCE_COMMIT,
