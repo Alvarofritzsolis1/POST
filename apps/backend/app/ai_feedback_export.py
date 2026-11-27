@@ -208,7 +208,7 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
     result["max_power_state"] = [{key: getattr(state, key) for key in ("enabled", "worker_seen_at", "last_tick_at", "on_seconds", "sessions", "experiments", "examined_cases", "lab_gains", "regressions", "active_round_id", "last_round_id", "last_status", "updated_at")}] if state else []
     policy = db.get(AIOrchestration, user.org_id)
     cfg = settings()
-    runtime = {key: getattr(cfg, key) for key in ("facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
+    runtime = {key: getattr(cfg, key) for key in ("facebook_local_processing_authorized", "facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
     message_ids = {row["id"] for row in result["messages"]}
     coverage = {"messenger_runs": sum(row["channel"] == "messenger" for row in result["runs"]),
                 "runs_linked_to_exported_message": sum(row["channel"] == "messenger" and row["timings"].get("outbound_message_id") in message_ids for row in result["runs"]),
