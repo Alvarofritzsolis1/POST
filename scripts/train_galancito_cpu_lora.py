@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend")
 from galant_cpu_lora_resources import capacity_gate, process_memory_mb, should_pause, snapshot
 from galancito_lora_progress import ProgressReporter
 from app.galancito_finetune_dataset import MODEL, load_approved, verified_training_manifest, verified_match
-from max_power_synthetic_lab import bounded_evaluation, verify_dataset
+from max_power_synthetic_lab import bounded_evaluation, contextual_loss_panel, training_panel, verify_dataset
 
 SYSTEM = "Responde en español con precisión. No inventes información ni identificadores."
 MIN_TRAIN = 30
@@ -182,7 +182,7 @@ def encode_cases(tokenizer, cases, length):
             self.rows = []
             for case in records:
                 prompt = tokenizer.apply_chat_template(
-                    [{"role":"system","content":SYSTEM}, case["messages"][0]],
+                    [{"role":"system","content":case.get("system", SYSTEM)}, case["messages"][0]],
                     tokenize=False, add_generation_prompt=True, enable_thinking=False)
                 prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
                 answer_ids = tokenizer.encode(
@@ -325,12 +325,15 @@ def main(argv=None):
             model.enable_input_require_grads()
         _, trainable_count = hash_trainable(model,torch)
         model.config.use_cache = False
-        train_data = encode_cases(tokenizer,bundle["samples"]["train"],args.max_tokens)
+        train_cases = bundle["samples"]["train"]
+        if args.synthetic_development:
+            train_cases = training_panel(train_cases, args.max_steps * 2)
+        train_data = encode_cases(tokenizer,train_cases,args.max_tokens)
         validation_cases = bundle["samples"]["validation"]
         holdout_cases = bundle["samples"]["test"]
         if args.synthetic_development:
-            validation_cases = bounded_evaluation(validation_cases)
-            holdout_cases = bounded_evaluation(holdout_cases)
+            validation_cases = contextual_loss_panel(validation_cases)
+            holdout_cases = contextual_loss_panel(holdout_cases)
         validation = encode_cases(tokenizer,validation_cases,args.max_tokens)
         holdout = encode_cases(tokenizer,holdout_cases,args.max_tokens)
         settings = TrainingArguments(
