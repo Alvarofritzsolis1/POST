@@ -459,6 +459,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 verified_explanation=bool(help_answer and "?" not in help_answer),
             )
             decision, declarations, drafted = generated
+            trace["model_draft_validated"] = bool(drafted and source in {"ai", "external"})
             if decision:
                 intent = decision.i
                 trace["question_field"] = decision.q
@@ -472,6 +473,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace.update(provider="local", verified_guidance="payment_terms")
             elif drafted and not (help_answer and "?" not in help_answer and "?" in drafted):
                 body = natural_messenger_reply(safe_ai_reply(drafted))
+                trace["model_draft_selected"] = True
             elif help_answer:
                 body, source = help_answer, "local"
                 trace.update(provider="local", verified_guidance="clarification")
@@ -481,7 +483,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 body, source = "Entiendo, queda pendiente. Cuando puedas confirmarlo, avísame por aquí.", "local"
                 trace.update(provider="local", verified_guidance="tentative_statement")
             elif fast and not intake_question_fields(fast) and contextual.is_declaration_turn(structured_fragments):
-                body = natural_messenger_reply(safe_ai_reply(fast))
+                body, source = natural_messenger_reply(safe_ai_reply(fast)), "local_recovery"
             else:
                 failed_ai = True
         elif state == "ai_pending":
@@ -675,7 +677,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         if not current.work_communes:
                             body = ("Perfecto, anoté que cuentas con un equipo de trabajo. "
                                     "¿En qué comuna pueden trabajar?")
-                        elif current.workers is None:
+                        elif current.workers is None and not (current.profile_sources or {}).get(
+                                "_declared_context", {}).get("crew_size", {}).get("value"):
                             body = ("Anoté que cuentas con un equipo de trabajo. "
                                     "¿Cuántas personas podrían trabajar contigo?")
                         else:
