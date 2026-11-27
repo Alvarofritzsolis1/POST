@@ -140,3 +140,49 @@ def test_distinct_master_and_contractor_experience():
     lead = blank_lead()
     apply_intake(lead, "Yo voy maestro yesero hace más de 15 años. Y contratista y con gente a cargo más de 8 años.", "")
     assert "15 años" in lead.experience and "8 años" in lead.experience
+
+
+def test_recovery_preview_rolls_back_and_preserves_manual_fields(network, monkeypatch):
+    from app.models import utcnow
+    from app.facebook_crm_models import FacebookLeadTrace, FacebookLeadTrade
+    org_id = enable_messaging(network, monkeypatch)
+    at = utcnow()
+    with network["Session"].begin() as db:
+        lead = FacebookLead(org_id=org_id, page_id=settings().facebook_page_id,
+                            psid="123456789012345", specialty="Electricidad",
+                            profile_sources={"specialty": {"source": "manual"},
+                                             "availability": {"source": "manual"}})
+        db.add(lead)
+        db.flush()
+        ident = lead.id
+        db.add_all([
+            FacebookChatMessage(org_id=org_id, lead_id=ident, page_id=lead.page_id,
+                                remote_id="recover-past-intake", direction="inbound",
+                                state="received", body="Soy contratista hace más de 8 años",
+                                created_at=at, updated_at=at),
+            FacebookChatMessage(org_id=org_id, lead_id=ident, page_id=lead.page_id,
+                                remote_id="recover-past-availability", direction="inbound",
+                                state="received", body="Estoy disponible desde mañana",
+                                created_at=at + timedelta(seconds=1),
+                                updated_at=at + timedelta(seconds=1)),
+        ])
+    base = f"/facebook/leads/{ident}/refresh-profile"
+    preview = network["send"](network["admin"], base + "?dry_run=true", {})
+    assert preview.status_code == 200, preview.text
+    data = preview.json()
+    assert data["dry_run"] and data["messages_examined"] == 2
+    assert data["changes"]["experience"]["after"] == "más de 8 años"
+    assert data["evidence"]["experience"] == "recover-past-intake"
+    assert "specialty" not in data["changes"] and "availability" not in data["changes"]
+    with network["Session"]() as db:
+        lead = db.get(FacebookLead, ident)
+        assert not lead.experience and lead.specialty == "Electricidad" and not lead.availability
+        assert not list(db.scalars(select(FacebookLeadTrace).where(FacebookLeadTrace.lead_id == ident)))
+        assert not list(db.scalars(select(FacebookLeadTrade).where(FacebookLeadTrade.lead_id == ident)))
+    applied = network["send"](network["admin"], base, {})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["experience"] == "más de 8 años"
+    assert applied.json()["specialty"] == "Electricidad" and not applied.json()["availability"]
+    repeated = network["send"](network["admin"], base + "?dry_run=true", {})
+    assert repeated.status_code == 200
+    assert repeated.json()["changes"] == {}
