@@ -85,6 +85,8 @@ def test_contextual_training_matches_messenger_protocol_without_leaking_partitio
             assert len(turn["r"]) <= 220
             assert turn["r"].endswith((".", "?"))
             prompt = row["messages"][0]["content"]
+            assert "Mensajes nuevos (única fuente para datos nuevos):\n" in prompt
+            assert (turn["q"] == "none") == ("?" not in turn["r"])
             for value in turn["d"].values():
                 evidence = value if isinstance(value, str) else value
                 if isinstance(evidence, str):
@@ -92,6 +94,8 @@ def test_contextual_training_matches_messenger_protocol_without_leaking_partitio
                 else:
                     assert all(isinstance(item, str) for item in evidence)
                     assert evidence[-1] in prompt
+    contextual = [row for rows in by_split.values() for row in rows]
+    assert any(row["messages"][0]["content"].startswith("Pregunta anterior de GALANT:") and "\nMensajes nuevos" in row["messages"][0]["content"] for row in contextual)
     panel = training_panel(bundle["samples"]["train"], 80)
     assert len(panel) == 80
     assert sum(row.get("sample_kind") == "contextual_turn" for row in panel) == len(by_split["train"])

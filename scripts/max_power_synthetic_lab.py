@@ -99,13 +99,958 @@ FAMILIES = (
     ("helpfulness", "ago {t} ya di los datos que sigue", "Hago {t}, ya compartí oficio, comuna y disponibilidad. ¿Qué sigue?", "Podemos revisar si hay una oportunidad que coincida con tus datos. Si quieres, seguimos por este chat."),
 )
 
-# Independent, human-authored synthetic families, not Messenger data.
+# Independent, curated synthetic families, not Messenger data.
 # Literal evidence only: do not invent missing contact data or qualifications.
 CONTEXTUAL_SYSTEM = ("Atiendes a maestros y contratistas chilenos. Devuelve solo JSON con d, i, q, r. "
                      "d contiene datos propios explícitos con citas literales; role, team, entity y channel "
                      "son pares [valor, cita]. Distingue hechos de terceros e hipótesis. "
                      "r responde la consulta o pregunta un dato pendiente, sin inventar.")
-CONTEXTUAL_FAMILIES = json.loads("[\n  {\n    \"id\": \"m1\",\n    \"criterion\": \"profile\",\n    \"variants\": [\n      {\n        \"message\": \"ola 1234567 soi maestro de primera\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"Perfecto, ¿en qué oficio trabajas como maestro de primera?\"\n        }\n      },\n      {\n        \"message\": \"soy M1 y el celu lo tengo incompleto\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿En qué especialidad trabajas como maestro de primera?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"fierro\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"soi enfierrador de pilares no el de las rejas\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"enfierrador\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Entendido, trabajas en enfierradura. ¿En qué comuna puedes trabajar?\"\n        }\n      },\n      {\n        \"message\": \"ago enfierradura pa las losas no soldadura\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"enfierradura\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Perfecto, trabajas en enfierradura. ¿En qué comuna puedes trabajar?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"crew\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"tengo 4 conocidos pero no se cuantos me acompañan\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"crew\",\n          \"r\": \"¿Cuántas personas podrían ir contigo con seguridad?\"\n        }\n      },\n      {\n        \"message\": \"los 6 cabros son amigos no se si irian\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"crew\",\n          \"r\": \"¿Cuántos de tus amigos podrían confirmar que van contigo?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"eifs\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"ago yeso y esa cuestion del plumavit por fuera\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"yeso\"\n            ]\n          },\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿Te refieres al sistema EIFS además del yeso?\"\n        }\n      },\n      {\n        \"message\": \"soi pintor y hago lo de aislacion pegada afuera\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"pintor\"\n            ]\n          },\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿También trabajas con el sistema EIFS?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"availability\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"mañana no perdon el lunes si\",\n        \"target\": {\n          \"d\": {\n            \"availability\": \"el lunes si\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"none\",\n          \"r\": \"Entendido, puedes el lunes en vez de mañana.\"\n        }\n      },\n      {\n        \"message\": \"no el viernes me equivoque puedo el martes\",\n        \"target\": {\n          \"d\": {\n            \"availability\": \"puedo el martes\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"none\",\n          \"r\": \"Entendido, quedas disponible el martes.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"number\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"somos 8 en total el numero 12003 es del pedido\",\n        \"target\": {\n          \"d\": {\n            \"crew\": \"8 en total\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, son ocho en total. ¿Qué oficio realizan?\"\n        }\n      },\n      {\n        \"message\": \"somos 5 en total y el 43321 es de la factura\",\n        \"target\": {\n          \"d\": {\n            \"crew\": \"5 en total\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Perfecto, son cinco en total. ¿Qué tipo de trabajo realizan?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"sibling\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"busco pega pal hermano el es gasfiter yo tengo pega\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿Tu hermano puede escribirnos para contarnos qué trabajo busca?\"\n        }\n      },\n      {\n        \"message\": \"mi sobrino quiere trabajar de jornal yo solo pregunto\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿Tu sobrino puede conversar directamente con nosotros por aquí?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"zones\",\n    \"criterion\": \"profile\",\n    \"variants\": [\n      {\n        \"message\": \"vivo en conce y puedo trabajar en coronel\",\n        \"target\": {\n          \"d\": {\n            \"origin\": \"conce\",\n            \"area\": \"coronel\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Perfecto, puedes trabajar en Coronel. ¿Qué oficio realizas?\"\n        }\n      },\n      {\n        \"message\": \"soy de lota y trabajo en san pedro\",\n        \"target\": {\n          \"d\": {\n            \"origin\": \"lota\",\n            \"area\": \"san pedro\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"¿Qué tipo de trabajo realizas en San Pedro?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"experience\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"tengo 42 de edad llevo 12 años de maestro\",\n        \"target\": {\n          \"d\": {\n            \"experience\": \"12 años de maestro\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, llevas doce años como maestro. ¿En qué oficio?\"\n        }\n      },\n      {\n        \"message\": \"tengo 50 pero de pintor llevo 6 años\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"pintor\"\n            ],\n            \"experience\": \"6 años\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"¿En qué comuna puedes trabajar como pintor?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"pay\",\n    \"criterion\": \"grounding\",\n    \"variants\": [\n      {\n        \"message\": \"cuanto pagan el metro de ceramica si es poco ni voy\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿Qué aviso viste? El pago por metro depende del trabajo y la obra.\"\n        }\n      },\n      {\n        \"message\": \"a cuanto la pega de pintura antes de dejar datos\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿De qué aviso se trata? Necesito identificarlo para orientarte sobre el pago.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"ceiling\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"soy el maestro del cielo de planchas no de techo arriba\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿Instalas cielos falsos de yeso-cartón?\"\n        }\n      },\n      {\n        \"message\": \"hago los cielos adentro de la casa no la techumbre\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿Trabajas instalando cielos falsos?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"tools\",\n    \"criterion\": \"profile\",\n    \"variants\": [\n      {\n        \"message\": \"tengo makina de soldar pero no soy soldador busco pega de ayudante\",\n        \"target\": {\n          \"d\": {\n            \"role\": [\n              \"employment\",\n              \"busco pega de ayudante\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"¿En qué tipo de trabajo tienes experiencia como ayudante?\"\n        }\n      },\n      {\n        \"message\": \"tengo esmeril pero no soi soldador busco trabajo de apoyo\",\n        \"target\": {\n          \"d\": {\n            \"role\": [\n              \"employment\",\n              \"busco trabajo de apoyo\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"¿En qué labores de apoyo has trabajado?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"correction\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"yo ago carpinteria la ceramica era mi socio no yo\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"carpinteria\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Entendido, haces carpintería. ¿En qué comuna puedes trabajar?\"\n        }\n      },\n      {\n        \"message\": \"lo mio es pintura lo de soldadura es de mi compadre\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"pintura\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Perfecto, tu oficio es pintura. ¿En qué comuna trabajas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"company\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"trabajo por mi cuenta voy solo pero uso un nombre comercial\",\n        \"target\": {\n          \"d\": {\n            \"entity\": [\n              \"individual\",\n              \"trabajo por mi cuenta\"\n            ],\n            \"team\": [\n              \"no\",\n              \"voy solo\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"¿Qué trabajos ofreces por tu cuenta?\"\n        }\n      },\n      {\n        \"message\": \"soy independiente trabajo solo no tengo empresa\",\n        \"target\": {\n          \"d\": {\n            \"entity\": [\n              \"individual\",\n              \"soy independiente\"\n            ],\n            \"team\": [\n              \"no\",\n              \"trabajo solo\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, trabajas solo. ¿Qué oficio realizas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"contact\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"no tengo el celu completo mejor sigamos por messenger\",\n        \"target\": {\n          \"d\": {\n            \"channel\": [\n              \"messenger\",\n              \"mejor sigamos por messenger\"\n            ]\n          },\n          \"i\": \"contact\",\n          \"q\": \"trade\",\n          \"r\": \"De acuerdo, seguimos por aquí. ¿Qué trabajo realizas?\"\n        }\n      },\n      {\n        \"message\": \"no uso correo prefiero que conversemos por messenger\",\n        \"target\": {\n          \"d\": {\n            \"channel\": [\n              \"messenger\",\n              \"prefiero que conversemos por messenger\"\n            ]\n          },\n          \"i\": \"contact\",\n          \"q\": \"trade\",\n          \"r\": \"Claro, seguimos por Messenger. ¿Qué trabajo realizas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"refusal\",\n    \"criterion\": \"safety\",\n    \"variants\": [\n      {\n        \"message\": \"soi albañil no quiero dar mi nombre aun\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"albañil\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Está bien. ¿En qué comuna puedes trabajar como albañil?\"\n        }\n      },\n      {\n        \"message\": \"hago pintura no quiero dejar mi nombre todavia\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"pintura\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"No hay problema. ¿En qué comuna puedes trabajar?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"helper\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"busco pega de ayudante en gasfiteria\",\n        \"target\": {\n          \"d\": {\n            \"role\": [\n              \"employment\",\n              \"busco pega de ayudante\"\n            ],\n            \"trade\": [\n              \"gasfiteria\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"¿En qué comuna buscas trabajo de ayudante de gasfitería?\"\n        }\n      },\n      {\n        \"message\": \"quiero empleo como ayudante de electricidad\",\n        \"target\": {\n          \"d\": {\n            \"role\": [\n              \"employment\",\n              \"quiero empleo\"\n            ],\n            \"trade\": [\n              \"electricidad\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"¿En qué comuna buscas trabajo como ayudante de electricidad?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"sarcasm\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"tengo mil maestros jaja mentira somos 3 en total\",\n        \"target\": {\n          \"d\": {\n            \"crew\": \"3 en total\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, son tres en total. ¿Qué trabajos realizan?\"\n        }\n      },\n      {\n        \"message\": \"somos un ejercito jaja somos 2 en total\",\n        \"target\": {\n          \"d\": {\n            \"crew\": \"2 en total\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Perfecto, son dos en total. ¿Qué oficio realizan?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"literacy\",\n    \"criterion\": \"helpfulness\",\n    \"variants\": [\n      {\n        \"message\": \"donde apreto pa que me den pega no se ocupar esto\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"question\",\n          \"q\": \"none\",\n          \"r\": \"Puedes contarnos por aquí qué trabajo sabes hacer. El equipo revisa las oportunidades disponibles.\"\n        }\n      },\n      {\n        \"message\": \"no se usar esto del celu como pido trabajo\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"question\",\n          \"q\": \"none\",\n          \"r\": \"Puedes escribir por este chat qué trabajo haces. No necesitas llenar todo de una vez.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"third\",\n    \"criterion\": \"profile\",\n    \"variants\": [\n      {\n        \"message\": \"mi primo es pintor yo soi enfierrador\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"enfierrador\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Entendido, tu oficio es enfierradura. ¿En qué comuna puedes trabajar?\"\n        }\n      },\n      {\n        \"message\": \"mi señora hace aseo yo soy carpintero\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"carpintero\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Perfecto, eres carpintero. ¿En qué comuna trabajas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"human\",\n    \"criterion\": \"helpfulness\",\n    \"variants\": [\n      {\n        \"message\": \"prefiero hablar con una persona del equipo\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"human\",\n          \"q\": \"none\",\n          \"r\": \"Entiendo, prefieres atención de una persona del equipo.\"\n        }\n      },\n      {\n        \"message\": \"quiero que me atienda alguien del equipo porfavor\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"human\",\n          \"q\": \"none\",\n          \"r\": \"Entendido, necesitas atención de una persona del equipo.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"safety\",\n    \"criterion\": \"safety\",\n    \"variants\": [\n      {\n        \"message\": \"me piden la clave unica pa postular?\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"question\",\n          \"q\": \"none\",\n          \"r\": \"No compartas claves por este chat. Para consultar por trabajo no necesitas enviarlas.\"\n        }\n      },\n      {\n        \"message\": \"tengo que mandar la clave del banco para anotarme?\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"question\",\n          \"q\": \"none\",\n          \"r\": \"No envíes claves bancarias. No son necesarias para consultar por trabajo.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"moldaje\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"hago moldaje de muro y losa pero no hago fierro\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"moldaje\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Perfecto, haces moldaje. ¿En qué comuna trabajas?\"\n        }\n      },\n      {\n        \"message\": \"hago moldaje de pilares no enfierradura\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"moldaje\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"area\",\n          \"r\": \"Entendido, haces moldaje de pilares. ¿En qué comuna puedes trabajar?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"notice\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"vi lo de pintura pero yo soy yesero\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"yesero\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"role\",\n          \"r\": \"Entiendo, tu oficio es yeso. ¿Buscas empleo o quieres ofrecer tus servicios?\"\n        }\n      },\n      {\n        \"message\": \"el aviso dice ceramica pero lo mio es gasfiteria\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"gasfiteria\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"role\",\n          \"r\": \"¿Buscas empleo en gasfitería o quieres ofrecer tus servicios?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"mixed\",\n    \"criterion\": \"reasoning\",\n    \"variants\": [\n      {\n        \"message\": \"hago pintura trabajo solo en coronel puedo desde el martes cuanto pagan\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"pintura\"\n            ],\n            \"team\": [\n              \"no\",\n              \"trabajo solo\"\n            ],\n            \"area\": \"coronel\",\n            \"availability\": \"desde el martes\"\n          },\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿Qué aviso viste? Necesito identificar el trabajo para orientarte sobre el pago.\"\n        }\n      },\n      {\n        \"message\": \"hago yeso trabajo solo en lota puedo desde el lunes a cuanto el metro\",\n        \"target\": {\n          \"d\": {\n            \"trade\": [\n              \"yeso\"\n            ],\n            \"team\": [\n              \"no\",\n              \"trabajo solo\"\n            ],\n            \"area\": \"lota\",\n            \"availability\": \"desde el lunes\"\n          },\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿Qué aviso u obra viste? El valor por metro depende del trabajo.\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"no_trade\",\n    \"criterion\": \"understanding\",\n    \"variants\": [\n      {\n        \"message\": \"le hago de todo pero no se como se llama\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"Cuéntame qué haces en una obra normalmente, por ejemplo si pintas o instalas planchas.\"\n        }\n      },\n      {\n        \"message\": \"soy maestro de los buenos hago de todo\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"trade\",\n          \"r\": \"¿Qué trabajos haces más seguido en las obras?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"conditional\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"si me prestan la camioneta podria llegar el viernes\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"availability\",\n          \"r\": \"¿El viernes está confirmado o depende de que consigas transporte?\"\n        }\n      },\n      {\n        \"message\": \"tal vez puedo ir con 4 si les dan permiso\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"crew\",\n          \"r\": \"¿Cuántas personas pueden ir contigo de forma confirmada?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"payment_past\",\n    \"criterion\": \"grounding\",\n    \"variants\": [\n      {\n        \"message\": \"no busco pega quiero que me paguen lo que me deben\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿De qué obra o período es el pago pendiente? Necesito identificarlo para orientarte.\"\n        }\n      },\n      {\n        \"message\": \"yo ya hice la pega solo pregunto por mi pago atrasado\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"¿A qué obra corresponde el pago pendiente?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"commute\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"soy de hualpen pero no puedo trabajar ahi solo coronel\",\n        \"target\": {\n          \"d\": {\n            \"origin\": \"hualpen\",\n            \"area\": \"coronel\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, puedes trabajar en Coronel. ¿Qué oficio realizas?\"\n        }\n      },\n      {\n        \"message\": \"vivo en conce pero trabajo solamente en lota\",\n        \"target\": {\n          \"d\": {\n            \"origin\": \"conce\",\n            \"area\": \"lota\"\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Perfecto, trabajas en Lota. ¿Qué oficio realizas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"split_team\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"tengo 7 contratados pero a esta pega voy solo\",\n        \"target\": {\n          \"d\": {\n            \"team\": [\n              \"no\",\n              \"voy solo\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entiendo, para este trabajo irías solo. ¿Qué oficio realizas?\"\n        }\n      },\n      {\n        \"message\": \"en la empresa somos 9 pero para esto voy solo\",\n        \"target\": {\n          \"d\": {\n            \"team\": [\n              \"no\",\n              \"voy solo\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entendido, para este trabajo vas solo. ¿Qué trabajo realizas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"pronoun\",\n    \"criterion\": \"context\",\n    \"variants\": [\n      {\n        \"message\": \"Pregunta anterior de GALANT: ¿En qué comuna puedes trabajar?\\nMENSAJE: en la misma de antes no se el nombre\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"area\",\n          \"r\": \"¿Me dices el nombre de la comuna donde puedes trabajar?\"\n        }\n      },\n      {\n        \"message\": \"Pregunta anterior de GALANT: ¿Buscas empleo o quieres ofrecer servicios?\\nMENSAJE: las dos\",\n        \"target\": {\n          \"d\": {\n            \"role\": [\n              \"both\",\n              \"las dos\"\n            ]\n          },\n          \"i\": \"intake\",\n          \"q\": \"trade\",\n          \"r\": \"Entiendo, te interesan ambas opciones. ¿Qué oficio realizas?\"\n        }\n      }\n    ]\n  },\n  {\n    \"id\": \"wrong_number\",\n    \"criterion\": \"accuracy\",\n    \"variants\": [\n      {\n        \"message\": \"el numero de arriba no es mi telefono es de un aviso\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"Entendido, ese número corresponde al aviso. ¿Qué necesitas consultar?\"\n        }\n      },\n      {\n        \"message\": \"no era mi celu era el codigo de la pega\",\n        \"target\": {\n          \"d\": {},\n          \"i\": \"clarification\",\n          \"q\": \"other\",\n          \"r\": \"Entendido, era el código del trabajo. ¿Qué necesitas saber del aviso?\"\n        }\n      }\n    ]\n  }\n]")
+CONTEXTUAL_FAMILIES = json.loads(r'''[
+  {
+    "id": "m1",
+    "criterion": "profile",
+    "variants": [
+      {
+        "message": "ola 1234567 soi maestro de primera",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "Perfecto, ¿en qué oficio trabajas como maestro de primera?"
+        }
+      },
+      {
+        "message": "soy M1 y el celu lo tengo incompleto",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿En qué especialidad trabajas como maestro de primera?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "fierro",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "soi enfierrador de pilares no el de las rejas",
+        "target": {
+          "d": {
+            "trade": [
+              "enfierrador"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Entendido, trabajas en enfierradura. ¿En qué comuna puedes trabajar?"
+        }
+      },
+      {
+        "message": "ago enfierradura pa las losas no soldadura",
+        "target": {
+          "d": {
+            "trade": [
+              "enfierradura"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Perfecto, trabajas en enfierradura. ¿En qué comuna puedes trabajar?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "crew",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "tengo 4 conocidos pero no se cuantos me acompañan",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "crew",
+          "r": "¿Cuántas personas podrían ir contigo con seguridad?"
+        }
+      },
+      {
+        "message": "los 6 cabros son amigos no se si irian",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "crew",
+          "r": "¿Cuántos de tus amigos podrían confirmar que van contigo?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "eifs",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "ago yeso y esa cuestion del plumavit por fuera",
+        "target": {
+          "d": {
+            "trade": [
+              "yeso"
+            ]
+          },
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿Te refieres al sistema EIFS además del yeso?"
+        }
+      },
+      {
+        "message": "soi pintor y hago lo de aislacion pegada afuera",
+        "target": {
+          "d": {
+            "trade": [
+              "pintor"
+            ]
+          },
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿También trabajas con el sistema EIFS?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "availability",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "mañana no perdon el lunes si",
+        "target": {
+          "d": {
+            "availability": "el lunes si"
+          },
+          "i": "intake",
+          "q": "none",
+          "r": "Entendido, puedes el lunes en vez de mañana."
+        }
+      },
+      {
+        "message": "no el viernes me equivoque puedo el martes",
+        "target": {
+          "d": {
+            "availability": "puedo el martes"
+          },
+          "i": "intake",
+          "q": "none",
+          "r": "Entendido, quedas disponible el martes."
+        }
+      }
+    ]
+  },
+  {
+    "id": "number",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "somos 8 en total el numero 12003 es del pedido",
+        "target": {
+          "d": {
+            "crew": "8 en total"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, son ocho en total. ¿Qué oficio realizan?"
+        }
+      },
+      {
+        "message": "somos 5 en total y el 43321 es de la factura",
+        "target": {
+          "d": {
+            "crew": "5 en total"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Perfecto, son cinco en total. ¿Qué tipo de trabajo realizan?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "sibling",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "busco pega pal hermano el es gasfiter yo tengo pega",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿Tu hermano puede escribirnos para contarnos qué trabajo busca?"
+        }
+      },
+      {
+        "message": "mi sobrino quiere trabajar de jornal yo solo pregunto",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿Tu sobrino puede conversar directamente con nosotros por aquí?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "zones",
+    "criterion": "profile",
+    "variants": [
+      {
+        "message": "vivo en conce y puedo trabajar en coronel",
+        "target": {
+          "d": {
+            "origin": "conce",
+            "area": "coronel"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Perfecto, puedes trabajar en Coronel. ¿Qué oficio realizas?"
+        }
+      },
+      {
+        "message": "soy de lota y trabajo en san pedro",
+        "target": {
+          "d": {
+            "origin": "lota",
+            "area": "san pedro"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "¿Qué tipo de trabajo realizas en San Pedro?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "experience",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "tengo 42 de edad llevo 12 años de maestro",
+        "target": {
+          "d": {
+            "experience": "12 años de maestro"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, llevas doce años como maestro. ¿En qué oficio?"
+        }
+      },
+      {
+        "message": "tengo 50 pero de pintor llevo 6 años",
+        "target": {
+          "d": {
+            "trade": [
+              "pintor"
+            ],
+            "experience": "6 años"
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "¿En qué comuna puedes trabajar como pintor?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "pay",
+    "criterion": "grounding",
+    "variants": [
+      {
+        "message": "cuanto pagan el metro de ceramica si es poco ni voy",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿Qué aviso viste? El pago por metro depende del trabajo y la obra."
+        }
+      },
+      {
+        "message": "a cuanto la pega de pintura antes de dejar datos",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿De qué aviso se trata? Necesito identificarlo para orientarte sobre el pago."
+        }
+      }
+    ]
+  },
+  {
+    "id": "ceiling",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "soy el maestro del cielo de planchas no de techo arriba",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿Instalas cielos falsos de yeso-cartón?"
+        }
+      },
+      {
+        "message": "hago los cielos adentro de la casa no la techumbre",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿Trabajas instalando cielos falsos?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "tools",
+    "criterion": "profile",
+    "variants": [
+      {
+        "message": "tengo makina de soldar pero no soy soldador busco pega de ayudante",
+        "target": {
+          "d": {
+            "role": [
+              "employment",
+              "busco pega de ayudante"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "¿En qué tipo de trabajo tienes experiencia como ayudante?"
+        }
+      },
+      {
+        "message": "tengo esmeril pero no soi soldador busco trabajo de apoyo",
+        "target": {
+          "d": {
+            "role": [
+              "employment",
+              "busco trabajo de apoyo"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "¿En qué labores de apoyo has trabajado?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "correction",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "yo ago carpinteria la ceramica era mi socio no yo",
+        "target": {
+          "d": {
+            "trade": [
+              "carpinteria"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Entendido, haces carpintería. ¿En qué comuna puedes trabajar?"
+        }
+      },
+      {
+        "message": "lo mio es pintura lo de soldadura es de mi compadre",
+        "target": {
+          "d": {
+            "trade": [
+              "pintura"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Perfecto, tu oficio es pintura. ¿En qué comuna trabajas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "company",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "trabajo por mi cuenta voy solo pero uso un nombre comercial",
+        "target": {
+          "d": {
+            "entity": [
+              "individual",
+              "trabajo por mi cuenta"
+            ],
+            "team": [
+              "no",
+              "voy solo"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "¿Qué trabajos ofreces por tu cuenta?"
+        }
+      },
+      {
+        "message": "soy independiente trabajo solo no tengo empresa",
+        "target": {
+          "d": {
+            "entity": [
+              "individual",
+              "soy independiente"
+            ],
+            "team": [
+              "no",
+              "trabajo solo"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, trabajas solo. ¿Qué oficio realizas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "contact",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "no tengo el celu completo mejor sigamos por messenger",
+        "target": {
+          "d": {
+            "channel": [
+              "messenger",
+              "mejor sigamos por messenger"
+            ]
+          },
+          "i": "contact",
+          "q": "trade",
+          "r": "De acuerdo, seguimos por aquí. ¿Qué trabajo realizas?"
+        }
+      },
+      {
+        "message": "no uso correo prefiero que conversemos por messenger",
+        "target": {
+          "d": {
+            "channel": [
+              "messenger",
+              "prefiero que conversemos por messenger"
+            ]
+          },
+          "i": "contact",
+          "q": "trade",
+          "r": "Claro, seguimos por Messenger. ¿Qué trabajo realizas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "refusal",
+    "criterion": "safety",
+    "variants": [
+      {
+        "message": "soi albañil no quiero dar mi nombre aun",
+        "target": {
+          "d": {
+            "trade": [
+              "albañil"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Está bien. ¿En qué comuna puedes trabajar como albañil?"
+        }
+      },
+      {
+        "message": "hago pintura no quiero dejar mi nombre todavia",
+        "target": {
+          "d": {
+            "trade": [
+              "pintura"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "No hay problema. ¿En qué comuna puedes trabajar?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "helper",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "busco pega de ayudante en gasfiteria",
+        "target": {
+          "d": {
+            "role": [
+              "employment",
+              "busco pega de ayudante"
+            ],
+            "trade": [
+              "gasfiteria"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "¿En qué comuna buscas trabajo de ayudante de gasfitería?"
+        }
+      },
+      {
+        "message": "quiero empleo como ayudante de electricidad",
+        "target": {
+          "d": {
+            "role": [
+              "employment",
+              "quiero empleo"
+            ],
+            "trade": [
+              "electricidad"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "¿En qué comuna buscas trabajo como ayudante de electricidad?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "sarcasm",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "tengo mil maestros jaja mentira somos 3 en total",
+        "target": {
+          "d": {
+            "crew": "3 en total"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, son tres en total. ¿Qué trabajos realizan?"
+        }
+      },
+      {
+        "message": "somos un ejercito jaja somos 2 en total",
+        "target": {
+          "d": {
+            "crew": "2 en total"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Perfecto, son dos en total. ¿Qué oficio realizan?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "literacy",
+    "criterion": "helpfulness",
+    "variants": [
+      {
+        "message": "donde apreto pa que me den pega no se ocupar esto",
+        "target": {
+          "d": {},
+          "i": "question",
+          "q": "none",
+          "r": "Puedes contarnos por aquí qué trabajo sabes hacer. El equipo revisa las oportunidades disponibles."
+        }
+      },
+      {
+        "message": "no se usar esto del celu como pido trabajo",
+        "target": {
+          "d": {},
+          "i": "question",
+          "q": "none",
+          "r": "Puedes escribir por este chat qué trabajo haces. No necesitas llenar todo de una vez."
+        }
+      }
+    ]
+  },
+  {
+    "id": "third",
+    "criterion": "profile",
+    "variants": [
+      {
+        "message": "mi primo es pintor yo soi enfierrador",
+        "target": {
+          "d": {
+            "trade": [
+              "enfierrador"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Entendido, tu oficio es enfierradura. ¿En qué comuna puedes trabajar?"
+        }
+      },
+      {
+        "message": "mi señora hace aseo yo soy carpintero",
+        "target": {
+          "d": {
+            "trade": [
+              "carpintero"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Perfecto, eres carpintero. ¿En qué comuna trabajas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "human",
+    "criterion": "helpfulness",
+    "variants": [
+      {
+        "message": "prefiero hablar con una persona del equipo",
+        "target": {
+          "d": {},
+          "i": "human",
+          "q": "none",
+          "r": "Entiendo, prefieres atención de una persona del equipo."
+        }
+      },
+      {
+        "message": "quiero que me atienda alguien del equipo porfavor",
+        "target": {
+          "d": {},
+          "i": "human",
+          "q": "none",
+          "r": "Entendido, necesitas atención de una persona del equipo."
+        }
+      }
+    ]
+  },
+  {
+    "id": "safety",
+    "criterion": "safety",
+    "variants": [
+      {
+        "message": "me piden la clave unica pa postular?",
+        "target": {
+          "d": {},
+          "i": "question",
+          "q": "none",
+          "r": "No compartas claves por este chat. Para consultar por trabajo no necesitas enviarlas."
+        }
+      },
+      {
+        "message": "tengo que mandar la clave del banco para anotarme?",
+        "target": {
+          "d": {},
+          "i": "question",
+          "q": "none",
+          "r": "No envíes claves bancarias. No son necesarias para consultar por trabajo."
+        }
+      }
+    ]
+  },
+  {
+    "id": "moldaje",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "hago moldaje de muro y losa pero no hago fierro",
+        "target": {
+          "d": {
+            "trade": [
+              "moldaje"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Perfecto, haces moldaje. ¿En qué comuna trabajas?"
+        }
+      },
+      {
+        "message": "hago moldaje de pilares no enfierradura",
+        "target": {
+          "d": {
+            "trade": [
+              "moldaje"
+            ]
+          },
+          "i": "intake",
+          "q": "area",
+          "r": "Entendido, haces moldaje de pilares. ¿En qué comuna puedes trabajar?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "notice",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "vi lo de pintura pero yo soy yesero",
+        "target": {
+          "d": {
+            "trade": [
+              "yesero"
+            ]
+          },
+          "i": "intake",
+          "q": "role",
+          "r": "Entiendo, tu oficio es yeso. ¿Buscas empleo o quieres ofrecer tus servicios?"
+        }
+      },
+      {
+        "message": "el aviso dice ceramica pero lo mio es gasfiteria",
+        "target": {
+          "d": {
+            "trade": [
+              "gasfiteria"
+            ]
+          },
+          "i": "intake",
+          "q": "role",
+          "r": "¿Buscas empleo en gasfitería o quieres ofrecer tus servicios?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "mixed",
+    "criterion": "reasoning",
+    "variants": [
+      {
+        "message": "hago pintura trabajo solo en coronel puedo desde el martes cuanto pagan",
+        "target": {
+          "d": {
+            "trade": [
+              "pintura"
+            ],
+            "team": [
+              "no",
+              "trabajo solo"
+            ],
+            "area": "coronel",
+            "availability": "desde el martes"
+          },
+          "i": "clarification",
+          "q": "other",
+          "r": "¿Qué aviso viste? Necesito identificar el trabajo para orientarte sobre el pago."
+        }
+      },
+      {
+        "message": "hago yeso trabajo solo en lota puedo desde el lunes a cuanto el metro",
+        "target": {
+          "d": {
+            "trade": [
+              "yeso"
+            ],
+            "team": [
+              "no",
+              "trabajo solo"
+            ],
+            "area": "lota",
+            "availability": "desde el lunes"
+          },
+          "i": "clarification",
+          "q": "other",
+          "r": "¿Qué aviso u obra viste? El valor por metro depende del trabajo."
+        }
+      }
+    ]
+  },
+  {
+    "id": "no_trade",
+    "criterion": "understanding",
+    "variants": [
+      {
+        "message": "le hago de todo pero no se como se llama",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿Qué haces normalmente en una obra, por ejemplo pintar o instalar planchas?"
+        }
+      },
+      {
+        "message": "soy maestro de los buenos hago de todo",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "trade",
+          "r": "¿Qué trabajos haces más seguido en las obras?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "conditional",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "si me prestan la camioneta podria llegar el viernes",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "availability",
+          "r": "¿El viernes está confirmado o depende de que consigas transporte?"
+        }
+      },
+      {
+        "message": "tal vez puedo ir con 4 si les dan permiso",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "crew",
+          "r": "¿Cuántas personas pueden ir contigo de forma confirmada?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "payment_past",
+    "criterion": "grounding",
+    "variants": [
+      {
+        "message": "no busco pega quiero que me paguen lo que me deben",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿De qué obra o período es el pago pendiente? Necesito identificarlo para orientarte."
+        }
+      },
+      {
+        "message": "yo ya hice la pega solo pregunto por mi pago atrasado",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "¿A qué obra corresponde el pago pendiente?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "commute",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "soy de hualpen pero no puedo trabajar ahi solo coronel",
+        "target": {
+          "d": {
+            "origin": "hualpen",
+            "area": "coronel"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, puedes trabajar en Coronel. ¿Qué oficio realizas?"
+        }
+      },
+      {
+        "message": "vivo en conce pero trabajo solamente en lota",
+        "target": {
+          "d": {
+            "origin": "conce",
+            "area": "lota"
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Perfecto, trabajas en Lota. ¿Qué oficio realizas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "split_team",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "tengo 7 contratados pero a esta pega voy solo",
+        "target": {
+          "d": {
+            "team": [
+              "no",
+              "voy solo"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entiendo, para este trabajo irías solo. ¿Qué oficio realizas?"
+        }
+      },
+      {
+        "message": "en la empresa somos 9 pero para esto voy solo",
+        "target": {
+          "d": {
+            "team": [
+              "no",
+              "voy solo"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entendido, para este trabajo vas solo. ¿Qué trabajo realizas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "pronoun",
+    "criterion": "context",
+    "variants": [
+      {
+        "message": "Pregunta anterior de GALANT: ¿En qué comuna puedes trabajar?\nMENSAJE: en la misma de antes no se el nombre",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "area",
+          "r": "¿Me dices el nombre de la comuna donde puedes trabajar?"
+        }
+      },
+      {
+        "message": "Pregunta anterior de GALANT: ¿Buscas empleo o quieres ofrecer servicios?\nMENSAJE: las dos",
+        "target": {
+          "d": {
+            "role": [
+              "both",
+              "las dos"
+            ]
+          },
+          "i": "intake",
+          "q": "trade",
+          "r": "Entiendo, te interesan ambas opciones. ¿Qué oficio realizas?"
+        }
+      }
+    ]
+  },
+  {
+    "id": "wrong_number",
+    "criterion": "accuracy",
+    "variants": [
+      {
+        "message": "el numero de arriba no es mi telefono es de un aviso",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "Entendido, ese número corresponde al aviso. ¿Qué necesitas consultar?"
+        }
+      },
+      {
+        "message": "no era mi celu era el codigo de la pega",
+        "target": {
+          "d": {},
+          "i": "clarification",
+          "q": "other",
+          "r": "Entendido, era el código del trabajo. ¿Qué necesitas saber del aviso?"
+        }
+      }
+    ]
+  }
+]''')
 
 
 def contextual_examples():
@@ -113,12 +1058,12 @@ def contextual_examples():
         group = sha256(("galant-qwen-contextual-v1:" + family["id"]).encode()).hexdigest()
         for variant in family["variants"]:
             raw = variant["message"]
-            if "\\nMENSAJE: " in raw:
-                prior, raw = raw.split("\\nMENSAJE: ", 1)
-                prefix = prior + "\\n"
+            if "\nMENSAJE: " in raw:
+                prior, raw = raw.split("\nMENSAJE: ", 1)
+                prefix = prior + "\n"
             else:
                 prefix = ""
-            prompt = prefix + "Mensajes nuevos (única fuente para datos nuevos):\\n" + json.dumps([raw], ensure_ascii=False)
+            prompt = prefix + "Mensajes nuevos (única fuente para datos nuevos):\n" + json.dumps([raw], ensure_ascii=False)
             answer = json.dumps(variant["target"], ensure_ascii=False, separators=(",", ":"))
             yield {"source": "curated_synthetic", "sample_kind": "contextual_turn",
                    "system": CONTEXTUAL_SYSTEM, "case_group": group,

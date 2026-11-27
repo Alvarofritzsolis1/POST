@@ -486,6 +486,8 @@ def main(argv=None):
             "optimizer_end_sha256":proof["optimizer_end_sha256"],
             "dataset_sha256":bundle["dataset_digest"],
             "dataset_partition_sizes":bundle["sizes"],
+            "selected_training_examples":len(train_cases),
+            "selected_contextual_training_examples":sum(case.get("sample_kind") == "contextual_turn" for case in train_cases),
             "validation_examples_measured":len(validation),
             "holdout_examples_measured":len(holdout),
             "heldout_loss_before":baseline,"heldout_loss_after":final,
