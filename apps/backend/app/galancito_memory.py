@@ -371,7 +371,12 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
         if roles:
             # A positive role confirms some experience; a negative role alone
             # cannot rule out experience in every other role.
-            if any(answer == "si" for _, answer in roles):
+            denies_target = re.search(r"\bno (?:en|para|con) (?:la (?:constructora|empresa) )?galilea\b", statement)
+            other_company = re.search(r"\b(?:en|para|con) otra (?:constructora|empresa)\b", statement)
+            if denies_target:
+                proposed["worked_at_galilea"] = False
+            elif (any(answer == "si" for _, answer in roles)
+                  and proposed.get("worked_at_galilea") is not False and not other_company):
                 proposed["worked_at_galilea"] = True
             proposed["galilea_experience_detail"] = personal[:250]
     if re.search(r"\b(?:no podemos|no puedo|no pueden) (?:ser|llevar|traer|sumar|contratar) mas\b", statement):

@@ -91,6 +91,17 @@ def test_negative_role_alone_does_not_deny_all_experience():
     assert context["galilea_experience_detail"]["value"] == "Como contratista no"
 
 
+def test_role_confirmation_cannot_override_explicit_target_denial():
+    context = remember(blank_lead(), "Como maestro sí, pero no en Galilea", "¿Has trabajado antes en Galilea?")
+    assert context["worked_at_galilea"]["value"] is False
+    assert "no en Galilea" in context["galilea_experience_detail"]["value"]
+
+
+def test_role_confirmation_in_another_company_does_not_confirm_galilea():
+    context = remember(blank_lead(), "Como maestro sí, pero en otra empresa", "¿Has trabajado antes en Galilea?")
+    assert "worked_at_galilea" not in context
+
+
 @pytest.mark.parametrize("error,allowed", [
     ("HTTP 400", False), ("HTTP 404", False), ("HTTP 410", False),
     ("HTTP 400 · código Meta 100", False), ("HTTP 400 · código Meta 230", False),
