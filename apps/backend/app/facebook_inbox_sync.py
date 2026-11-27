@@ -278,7 +278,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if introducing_phone_number(body) and not (phone_ack or direct):
                     continue
                 if worksite_payment_terms_question(body):
-                    state, reply = "pending", exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                    reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                    state = "pending" if reply or not contextual.authorized(cfg, lead) else "ai_pending"
+                    if state == "ai_pending":
+                        reply = ""
                 elif intake == GALILEA_QUESTION:
                     state, reply = "pending", intake
                 elif contact_model or contextual_turn:
