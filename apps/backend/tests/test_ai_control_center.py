@@ -1346,7 +1346,12 @@ def test_feedback_export_admin_tenant_and_text_opt_in(ai_env):
         assert forbidden not in response.text
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["schema_version"] == 2
-    assert "source_inventory" in response.json()
+    assert response.json()["source_inventory"]
+    assert all("source" not in item for item in response.json()["source_inventory"])
+    code = client.get(endpoint + "?include_code=true")
+    assert code.status_code == 200, code.text[:500]
+    assert all("source" in item for item in code.json()["source_inventory"])
+    assert all(item["path"].endswith(".py") for item in code.json()["source_inventory"])
     assert "coverage" in response.json()
     assert response.json()["runtime_configuration"]["galancito_local_model"]
     assert "api_key" not in str(response.json()["runtime_configuration"])

@@ -81,12 +81,20 @@ def safe_timings(value):
             (k in TIMING_LABELS and isinstance(v, str) and re.fullmatch(r"[\w.:/-]{1,160}", v)) or
             (k in TRACE_LISTS and isinstance(v, list) and all(isinstance(x, str) and re.fullmatch(r"[\w-]{1,64}", x) for x in v))}
 
-def source_inventory():
+def source_inventory(include_code=False):
     # Only shipped application Python sources; never environment files, keys or logs.
     root = Path(__file__).resolve().parent
     prefixes = ("galancito_", "facebook_", "network_", "ai_", "max_power_")
-    return [{"path": "apps/backend/app/" + path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-            for path in sorted(root.glob("*.py")) if path.name.startswith(prefixes)]
+    files = []
+    for path in sorted(root.glob("*.py")):
+        if not path.name.startswith(prefixes) or path.is_symlink():
+            continue
+        data = path.read_bytes()
+        record = {"path": "apps/backend/app/" + path.name, "sha256": hashlib.sha256(data).hexdigest()}
+        if include_code:
+            record["source"] = data.decode("utf-8")
+        files.append(record)
+    return files
 
 def profile_provenance(row, remote_to_local):
     sources = row.profile_sources or {}
@@ -116,17 +124,16 @@ def selection(model, org_id, date_field, since):
         stmt = stmt.where(model.channel.in_(("messenger", "red_obras")))
     if model is AIUsage:
         stmt = stmt.where(model.task.in_(("messenger", "red_obras", "review")))
-    if model is TrainingRound:
-        pass  # filter training profile below; do not export internal chat cases
     if model is Knowledge:
         stmt = stmt.where(model.scope.in_(("red_obras", "messenger")))
-    if since is not None:
+    if since is not None and model not in (AIConnection, FacebookTradeGuide, Knowledge):
         stmt = stmt.where(getattr(model, date_field) >= since)
     return stmt.order_by(getattr(model, date_field))
 
 @router.get("/red-obras/feedback-export")
 def feedback_export(days: int = Query(default=0, ge=0, le=90),
                     include_text: bool = Query(default=False),
+                    include_code: bool = Query(default=False),
                     user: User = Depends(administrator), db: Session = Depends(get_db)):
     if days not in (0, 7, 30, 90):
         raise HTTPException(422, "Período no admitido.")
@@ -168,7 +175,10 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
                 item["declared_context"] = {key: safe_text(value.get("value"), names) if isinstance(value.get("value"), str) and include_text else value.get("value") if type(value.get("value")) in (bool, int, float) else None
                                             for key, value in profile["declared_context"].items() if key in ("declared_origin", "crew_size", "preferred_contact", "worked_at_galilea", "crew_expandable", "notice_trade", "additional_services_pending") and isinstance(value, dict)}
             if model in (FacebookChatMessage, FacebookPostJob, NetworkFacebookPost, NetworkFacebookManual):
-                item["error_recorded"] = bool(getattr(row, "error", None) or getattr(row, "last_error", None))
+                error = getattr(row, "error", None) or getattr(row, "last_error", None)
+                item["error_recorded"] = bool(error)
+                if error:
+                    item["error_codes"] = {label: int(match.group(1)) for label, pattern in (("http", r"HTTP (\d{3})"), ("meta", r"código Meta (\d+)"), ("subcode", r"subcódigo (\d+)")) if (match := re.search(pattern, error))}
             if model is AssistantRun:
                 item["timings"] = safe_timings(row.timings)
             if model is TrainingRound:
@@ -222,17 +232,18 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
         "coverage": coverage,
         "runtime_configuration": runtime,
         "orchestration": {"enabled": policy.enabled, "fallback_enabled": policy.fallback_enabled, "review_enabled": policy.review_enabled} if policy else None,
-        "source_inventory": source_inventory(),
+        "source_inventory": source_inventory(include_code),
+        "include_code": include_code,
         "repository": "https://github.com/Alvarofritzsolis1/POST",
         "findings_note": "Indicadores observados; campos pendientes, fallback y falta de vínculo no son por sí solos errores de IA.",
         "limitations": [
             "Solo registros persistidos de la organización autenticada.",
-            "Los filtros temporales se aplican por fecha indicada en cada colección; las fichas son su estado actual, no reconstrucciones históricas.",
+            "Los filtros temporales se aplican por fecha indicada en cada colección; configuración, guías y conocimiento se incluyen en su estado actual. Las fichas no son reconstrucciones históricas.",
             "No incluye chats internos privados, credenciales, archivos ni razonamiento interno del modelo.",
             "Los errores de proveedor se indican por presencia, no por logs sin filtrar.",
             "El texto opcional tiene redacción parcial de identificadores; revisar antes de compartir.",
             "Sin trazas vinculadas no se puede determinar si la respuesta provino del modelo o de una regla.",
-            "Inventario de código del backend con hashes; la revisión completa se obtiene del repositorio mediante source_commit. No incluye código frontend dentro del JSON.",
+            "Inventario de código del backend con hashes y fuente opcional. El frontend y el resto del repositorio se obtienen mediante source_commit. No incluye archivos de configuración privados.",
             "candidate_history_ids identifica mensajes candidatos recuperados, no garantiza inclusión exacta en el prompt.",
             "Configuración actual, no necesariamente la utilizada en cada respuesta histórica. Los resultados de práctica no equivalen a producción.",
             "Referencias de mensajes fuera del período o borrados pueden faltar. Los chats internos privados quedan excluidos.",
