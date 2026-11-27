@@ -1,0 +1,168 @@
+{
+  "version": "20.9.47-rc1",
+  "environment": {
+    "cpu_quota": 3,
+    "ollama_cpu_limit": 2,
+    "ollama_memory_limit_gib": 4,
+    "interactive_timeout_seconds": 60,
+    "shared_with_backend_tests": true
+  },
+  "evaluations": [
+    {
+      "dataset": "galancito_core_fresh_contacts.jsonl",
+      "conversations": 4,
+      "turns": 6,
+      "passed": 4,
+      "failed_checks": 0,
+      "checks": {
+        "avoids_known_questions": {
+          "passed": 6,
+          "total": 6
+        },
+        "batched": {
+          "passed": 6,
+          "total": 6
+        },
+        "does_not_echo_sender": {
+          "passed": 6,
+          "total": 6
+        },
+        "expected_reply": {
+          "passed": 6,
+          "total": 6
+        },
+        "model_reply_selected": {
+          "passed": 3,
+          "total": 3
+        },
+        "no_unsupported_reply": {
+          "passed": 6,
+          "total": 6
+        },
+        "persisted_once": {
+          "passed": 6,
+          "total": 6
+        },
+        "profile": {
+          "passed": 6,
+          "total": 6
+        },
+        "single_coherent_reply": {
+          "passed": 6,
+          "total": 6
+        },
+        "webhook": {
+          "passed": 6,
+          "total": 6
+        }
+      },
+      "profile_fields": {
+        "checked": 8,
+        "errors": 0
+      },
+      "latency": {
+        "p50_ms": 15409.078,
+        "p95_ms": 53029.563
+      },
+      "real_model_verified": true,
+      "observed_models": [
+        "qwen3.5:2b-q4_K_M"
+      ],
+      "local_model_calls": 9,
+      "reply_origins": {
+        "local_model": 3,
+        "external_model": 0,
+        "verified_guidance": 0,
+        "local_policy": 0,
+        "human_handoff": 1,
+        "recovery": 0,
+        "null": 0
+      },
+      "production_verified": false
+    },
+    {
+      "dataset": "galancito_patch_20_9_47.jsonl",
+      "conversations": 2,
+      "turns": 2,
+      "passed": 2,
+      "failed_checks": 0,
+      "checks": {
+        "avoids_known_questions": {
+          "passed": 2,
+          "total": 2
+        },
+        "batched": {
+          "passed": 2,
+          "total": 2
+        },
+        "does_not_echo_sender": {
+          "passed": 2,
+          "total": 2
+        },
+        "expected_reply": {
+          "passed": 2,
+          "total": 2
+        },
+        "no_unsupported_reply": {
+          "passed": 2,
+          "total": 2
+        },
+        "persisted_once": {
+          "passed": 2,
+          "total": 2
+        },
+        "profile": {
+          "passed": 2,
+          "total": 2
+        },
+        "single_coherent_reply": {
+          "passed": 2,
+          "total": 2
+        },
+        "webhook": {
+          "passed": 2,
+          "total": 2
+        }
+      },
+      "profile_fields": {
+        "checked": 12,
+        "errors": 0
+      },
+      "latency": {
+        "p50_ms": 52507.561,
+        "p95_ms": 64327.553
+      },
+      "real_model_verified": true,
+      "observed_models": [
+        "qwen3.5:2b-q4_K_M"
+      ],
+      "local_model_calls": 6,
+      "reply_origins": {
+        "local_model": 2,
+        "external_model": 0,
+        "verified_guidance": 0,
+        "local_policy": 0,
+        "human_handoff": 0,
+        "recovery": 0,
+        "null": 0
+      },
+      "production_verified": false
+    }
+  ],
+  "other_checks": {
+    "postgresql_version": 16,
+    "new_backend_cases_passed": 37,
+    "focused_backend_cases_passed": 103,
+    "frontend_logic_passed": 30,
+    "frontend_build": "passed",
+    "compose_local_authorization_propagation": "passed_for_false_and_true",
+    "release_gate_tests_passed": 6,
+    "full_backend": "running"
+  },
+  "limitations": [
+    "Meta simulado; sin envío a personas reales.",
+    "No se verificaron credenciales, permisos ni instalación del VPS real.",
+    "Los tiempos se midieron en un entorno compartido; no son un SLA del VPS.",
+    "Los resultados de los conjuntos se mantienen separados; no prueban calidad universal."
+  ]
+}

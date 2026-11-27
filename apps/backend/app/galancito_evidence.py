@@ -3,7 +3,7 @@ from difflib import get_close_matches
 import re
 
 from .galancito_communes import commune_mentions
-from .galancito_intake import WORK_AREA_CUE, role_mentions
+from .galancito_intake import CREW_PERSON_UNIT, WORK_AREA_CUE, role_mentions
 from .galancito_links import trade_mentions
 from .galancito_triage import declaration_text, plain
 
@@ -12,7 +12,7 @@ QUANTITY = (r"\d{1,4}|un[oa]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|"
             r"sesenta|setenta|ochenta|noventa|cien|ciento|varios|varias")
 QUALIFIER = r"mas de|menos de|como|alrededor de|cerca de|unas?|aprox\w*|entre|hasta|sobre"
 QUALIFIED_CREW = re.compile(r"\b(?:" + QUALIFIER + r")\b")
-CREW_UNIT = r"maestros?|personas?|trabajadores?|ayudantes?|cabros?|compas?|integrantes?"
+CREW_UNIT = "(?:" + CREW_PERSON_UNIT + ")"
 CREW_SPAN = re.compile(r"\b(?:(?:" + QUALIFIER + r") )?(?:" + QUANTITY + r")"
                        r"(?: (?:a|y) (?:" + QUANTITY + r"))?(?: " + CREW_UNIT + r")?\b")
 PARTY = (r"(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|prim[oa]|colega|jefe|"

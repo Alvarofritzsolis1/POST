@@ -25,6 +25,11 @@ _TRADE_QUESTION = "que trabajo realizas"
 _EXPERIENCE_QUESTION = "cuanto tiempo llevas"
 _COMMUNE_QUESTION = "en que comuna"
 _AVAILABILITY_QUESTION = "desde cuando podrias"
+# Occupational nouns describe people; equipment, materials and work quantities do not.
+CREW_PERSON_UNIT = (r"personas?|maestros?|trabajadores?|ayudantes?|cabros?|compas?|integrantes?|"
+                    r"pintor(?:es|as)?|pintora|yeser[oa]s?|carpinter[oa]s?|electricistas?|"
+                    r"gasfiter(?:es|os)?|albanil(?:es)?|soldador(?:es|as)?|soldadora|"
+                    r"ceramistas?|tabiquer[oa]s?|enfierrador(?:es|as)?|jardiner[oa]s?")
 
 _PROMPTS = (
     _INTEREST_QUESTION, _TEAM_QUESTION, _TRADE_QUESTION,
@@ -67,7 +72,7 @@ def intake_question_fields(prompt: str) -> set[str]:
         fields.add("experience")
         if not re.search(r"\b(?:buscas|ofreces|quieres|prefieres)\b", value):
             fields.discard("interest_type")
-    if re.search(r"\b(?:(?:has trabajado|habias trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
+    if re.search(r"\b(?:(?:(?:has|ha|han|habias|habia) trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
                  r"(?:en|para|con) (?:(?:una |alguna )?obras? de )?|tienes experiencia (?:previa )?en )galilea\b", value):
         fields.add("worked_at_galilea")
     return fields
@@ -309,7 +314,7 @@ def _team_update(lead, value: str, previous: str) -> None:
 
     count = _COUNT
     total = re.search(r"\b(?:somos|(?:cuadrilla|equipo) (?:es )?de|iremos) " + count +
-                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total|"
+                      r"(?= (?:" + CREW_PERSON_UNIT + r"|en total|"
                       r"que (?:necesitan?|hay que) hacer|y (?:podemos|pueden|puedo|el resto))\b|\s*(?:\||$))", value)
     if not total:
         total = re.search(r"\btengo " + count + r" (?:ayudantes?|personas?|maestros?|trabajadores?) disponibles\b", value)

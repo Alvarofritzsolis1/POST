@@ -170,6 +170,10 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
             "ai_enabled": cfg.facebook_ai_enabled,
             "auto_reply_enabled": cfg.facebook_ai_enabled,
             "page_configured": bool(cfg.facebook_page_id and cfg.facebook_org_id),
+            "provider": cfg.facebook_ai_provider,
+            "local_ai_enabled": cfg.galancito_local_ai_enabled,
+            "local_processing_authorized": cfg.facebook_local_processing_authorized,
+            "contextual_enabled": cfg.galancito_contextual_messenger_enabled,
         },
     }
 

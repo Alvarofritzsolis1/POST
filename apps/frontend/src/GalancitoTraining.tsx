@@ -80,6 +80,8 @@ type Round = {
   config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; focus?: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean; orchestrator?: string };
   metrics: Metrics;
 };
+const partialRound = (round: Round) => round.state !== "completed" || round.completed !== round.target ||
+  round.metrics.passed + round.metrics.failed !== round.target;
 type Overview = {
   active_id: string | null; rounds: Round[]; detail_days: number;
   local_model: string; training_mode: string; internal_categories?: string[];
@@ -340,6 +342,8 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
             {round.state === "queued" && round.config.night ? " · " + timestamp(round.next_at) : ""}</p>}
           {round.config.suite !== "live" && <p className="training-muted" role="note">Resultados exclusivos del laboratorio sintético. No son una calificación de los chats reales de Messenger.</p>}
+          {partialRound(round) &&
+            <p className="training-muted" role="status">Resultado parcial: {number((stats?.passed ?? 0) + (stats?.failed ?? 0))} casos evaluados de {number(round.target)} previstos. La puntuación corresponde a los casos evaluados.</p>}
           {round.config.profile === "postulantes" && !!round.config.focus &&
             (stats?.synthetic_holdout_baseline_rate != null || stats?.messenger_coaching_count) && <div className="training-lab-comparison">
               <strong>Aprendizaje por instrucciones · solo laboratorio</strong>
@@ -451,7 +455,8 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             onClick={() => { setSelection(item.id); setFailures(null); }}>
             <span><strong>{timestamp(item.created_at)}</strong><small>{suites[item.config.suite]} · Nivel {item.config.level} · {labels[item.state]} · {item.config.model.model}</small></span>
             <span className="training-bar" aria-hidden="true"><span style={{ width: (item.metrics.score ?? 0) + "%" }} /></span>
-            <span>{item.metrics.score == null ? "—" : number(item.metrics.score) + " / 100"}</span><ChevronRight size={15} />
+            <span>{item.metrics.score == null ? "—" : number(item.metrics.score) + " / 100"}
+              {item.metrics.score != null && partialRound(item) ? " · parcial" : ""}</span><ChevronRight size={15} />
           </button>)}
         </div> : <p className="training-muted">Aún no hay rondas registradas.</p>}
         {round && <div className="training-history-info">

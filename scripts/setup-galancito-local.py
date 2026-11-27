@@ -97,6 +97,10 @@ def install() -> None:
 
     fb = (input("¿Activar respuestas automáticas locales en Messenger? [s/N]: ")
           .strip().lower() in {"s", "si", "sí"})
+    local_authorized = env_values(ENV).get("FACEBOOK_LOCAL_PROCESSING_AUTHORIZED", "false").lower() == "true"
+    if fb and not local_authorized:
+        local_authorized = (input("¿El responsable ha autorizado y comunicado el procesamiento local de conversaciones? [s/N]: ")
+                            .strip().lower() in {"s", "si", "sí"})
     ads = (input("¿Agregar textos de Galancito a anuncios automáticos de Red de Obras? [s/N]: ")
            .strip().lower() in {"s", "si", "sí"})
     changes = {
@@ -106,6 +110,7 @@ def install() -> None:
         "GALANCITO_AI_ENABLED": "true",
         "FACEBOOK_AI_PROVIDER": "ollama",
         "FACEBOOK_AI_ENABLED": "true" if fb else "false",
+        "FACEBOOK_LOCAL_PROCESSING_AUTHORIZED": str(local_authorized).lower(),
         "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true" if fb else "false",
         "FACEBOOK_AI_AD_ENABLED": "true" if ads else "false",
         # API keys previas, si existen, se conservan sin usarlas.

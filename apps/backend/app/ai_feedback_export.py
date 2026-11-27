@@ -173,7 +173,7 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
                 profile = contact_profile(row)
                 item["profile_completion"] = {key: profile[key] for key in ("completed", "total", "percent", "missing", "field_states", "contact_state", "additional_services_pending")}
                 item["declared_context"] = {key: safe_text(value.get("value"), names) if isinstance(value.get("value"), str) and include_text else value.get("value") if type(value.get("value")) in (bool, int, float) else None
-                                            for key, value in profile["declared_context"].items() if key in ("declared_origin", "crew_size", "preferred_contact", "worked_at_galilea", "crew_expandable", "notice_trade", "additional_services_pending") and isinstance(value, dict)}
+                                            for key, value in profile["declared_context"].items() if key in ("declared_origin", "crew_size", "preferred_contact", "worked_at_galilea", "galilea_experience_detail", "crew_expandable", "notice_trade", "additional_services_pending") and isinstance(value, dict)}
             if model in (FacebookChatMessage, FacebookPostJob, NetworkFacebookPost, NetworkFacebookManual):
                 error = getattr(row, "error", None) or getattr(row, "last_error", None)
                 item["error_recorded"] = bool(error)
@@ -184,6 +184,11 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
             if model is TrainingRound:
                 metrics = summarize(row.metrics or {}, "postulantes")
                 item["metrics"] = {k: v for k, v in metrics.items() if v is None or type(v) in (bool, int, float)}
+                item["metrics"]["score_basis"] = metrics["score_basis"]
+                item["metrics"]["evaluated_cases"] = metrics["passed"] + metrics["failed"]
+                item["metrics"]["target_cases"] = row.target
+                item["metrics"]["score_is_partial"] = (row.state != "completed" or
+                    metrics["passed"] + metrics["failed"] != row.target)
                 item["models"] = {role: {k: spec.get(k) for k in ("id", "model") if isinstance(spec.get(k), str)}
                                   for role in ("model", "judge", "corrector")
                                   if isinstance(spec := (row.config or {}).get(role), dict)}

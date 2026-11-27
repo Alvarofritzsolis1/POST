@@ -5,7 +5,8 @@ import re
 from sqlalchemy import select
 from .facebook_publication_models import FacebookPostJob
 
-_PERMISSION_CODES = {10, 102, 190, 200, 283, 492}
+_PERMISSION_CODES = {10, 100, 102, 190, 200, 230, 283, 492}
+_TRANSIENT_CODES = {1, 2, 4, 17, 32, 613}
 
 
 def refresh_retry_allowed(state, error, updated_at, now):
@@ -17,14 +18,16 @@ def refresh_retry_allowed(state, error, updated_at, now):
     # Meta/proxies may omit a JSON error code on authentication failures.
     # Waiting cannot repair credentials or permissions, even without code 190.
     http = re.search(r"HTTP (\d{3})\b", error or "")
-    if http and int(http[1]) in {401, 403}:
+    if http and int(http[1]) in {401, 403, 404, 410}:
         return False
     code = re.search(r"código Meta (\d+)", error or "")
-    subcode = re.search(r"subcódigo (\d+)", error or "")
-    if code:
-        number = int(code[1])
-        if number in _PERMISSION_CODES or (number == 100 and subcode and int(subcode[1]) == 33):
-            return False
+    number = int(code[1]) if code else None
+    if number in _PERMISSION_CODES:
+        return False
+    if http and int(http[1]) == 400 and number not in _TRANSIENT_CODES:
+        # Invalid parameters/unsupported fields are not repaired by polling.
+        # Meta also uses HTTP 400 for rate limits, which remain retryable.
+        return False
     if updated_at is None:
         return False
     if updated_at.tzinfo is None:
