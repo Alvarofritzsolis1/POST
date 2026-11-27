@@ -1169,32 +1169,74 @@ def recover_contact_fields(lead_id: str, user: User = Depends(administrator),
     return _lead_view(db, lead)
 
 
-@router.post("/leads/{lead_id}/refresh-profile")
-def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
-                             db: Session = Depends(get_db)):
-    """Idempotent, local replay of recorded declarations; no outside AI call.
-
-    Recovers short names given to an older question like "¿Cuál es tu nombre?"
-    while respecting names already set by an operator or Meta.
-    """
-    lead = _lead(db, user, lead_id, lock=True)
+def _replay_declared_profile(db, lead):
+    """Bounded local recovery, with no replies or external calls."""
     recover_missing_contact(db, lead)
-    messages = list(db.scalars(select(FacebookChatMessage).where(
-        FacebookChatMessage.org_id == user.org_id,
+    rows = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == lead.org_id,
         FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))[::-1]
-    previous_question = ""
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(201)))
+    truncated = len(rows) > 200
+    messages = sorted(rows[:200], key=lambda item: (
+        aware(item.updated_at if item.direction == "outbound" and item.state == "sent"
+              else item.created_at), item.id))
+    previous_question, question_at = "", None
     aliases = approved_trade_aliases(db, lead.org_id)
     for item in messages:
         if item.direction == "outbound":
             if item.state == "sent":
-                previous_question = item.body or ""
+                previous_question, question_at = item.body or "", aware(item.updated_at)
         elif item.direction == "inbound":
+            at = aware(item.created_at)
+            prior = previous_question if question_at and timedelta(0) <= at - question_at <= timedelta(hours=24) else ""
             if item.consent_decision is None:
-                apply_messenger_message(db, lead, item.body or "", previous_question,
-                                        remote_id=item.remote_id, at=aware(item.created_at),
+                apply_messenger_message(db, lead, item.body or "", prior,
+                                        remote_id=item.remote_id, at=at,
                                         replay=True, aliases=aliases)
-            previous_question = ""
+            previous_question, question_at = "", None
+    return {"messages_examined": len(messages), "history_truncated": truncated}
+
+
+def _recovery_snapshot(db, lead):
+    # Detach mutable JSON and keep raw contact values out of the diagnostic.
+    from copy import deepcopy
+    facts = profile_facts(lead)
+    facts["trades"] = sorted(active_trades(db, lead))
+    facts["phone_recorded"] = bool(lead.contact_phone)
+    facts["email_recorded"] = bool(lead.contact_email)
+    return deepcopy(facts)
+
+
+@router.post("/leads/{lead_id}/refresh-profile")
+def refresh_declared_profile(lead_id: str, dry_run: bool = False,
+                             user: User = Depends(administrator),
+                             db: Session = Depends(get_db)):
+    """Preview or recover evidence-backed fields without sending any messages."""
+    lead = _lead(db, user, lead_id, lock=True)
+    if dry_run:
+        before = _recovery_snapshot(db, lead)
+        savepoint = db.begin_nested()
+        try:
+            coverage = _replay_declared_profile(db, lead)
+            db.flush()
+            after = _recovery_snapshot(db, lead)
+            changed = {key: {"before": before.get(key), "after": after.get(key)}
+                       for key in after if before.get(key) != after.get(key)}
+            # Provide the persisted inbound evidence identifiers, not message text.
+            sources = lead.profile_sources or {}
+            evidence = {key: sources[key].get("message_id") for key in changed
+                        if isinstance(sources.get(key), dict)}
+            evidence.update({"declared_context." + key: entry.get("message_id")
+                             for key, entry in (sources.get("_declared_context") or {}).items()
+                             if isinstance(entry, dict) and
+                             before.get("declared_context", {}).get(key) !=
+                             after.get("declared_context", {}).get(key)})
+            result = {"dry_run": True, "lead_id": lead_id, **coverage,
+                      "changes": changed, "evidence": evidence}
+        finally:
+            savepoint.rollback()
+        return result
+    _replay_declared_profile(db, lead)
     lead.updated_at = utcnow()
     db.commit()
     return _lead_view(db, lead)
