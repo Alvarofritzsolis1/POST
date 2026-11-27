@@ -68,7 +68,7 @@ DATASETS = {
 }
 TEXT_FIELDS = {"name", "notes", "reason", "aliases", "explanation", "document_guidance", "specialty", "trade", "public_location", "slug", "category","body", "message", "title", "description", "public_summary", "experience", "availability", "work_area", "work_communes", "phrases", "content"}
 TIMING_IDS = {"outbound_message_id", "inbound_message_id", "lead_id"}
-TIMING_LABELS = {"provider", "model", "response_model", "source", "delivery_state", "error_type", "release", "revision", "question_field", "fallback_reason", "model_error_type", "verified_guidance", "guided_followup", "ai_route"}
+TIMING_LABELS = {"reply_origin", "provider", "model", "response_model", "source", "delivery_state", "error_type", "release", "revision", "question_field", "fallback_reason", "model_error_type", "verified_guidance", "guided_followup", "ai_route"}
 TRACE_LISTS = {"semantic_fields", "profile_fields_before", "profile_fields_after", "candidate_history_ids"}
 METRIC_KEYS = {"passed", "failed", "turns", "fields", "correct_fields", "questions", "repeated_questions", "critical", "judged_cases", "judged_turns", "latency_ms", "input_tokens", "output_tokens", "peak_worker_ram_mb", "peak_host_cpu_percent", "real_holdout_gain_cases", "real_holdout_regressions", "synthetic_holdout_gains", "synthetic_holdout_regressions", "real_learning_demonstrated", "objective_gain", "paired_latency_delta_ms", "baseline_ms", "candidate_ms", "elapsed_ms", "safe", "understanding_check"}
 
