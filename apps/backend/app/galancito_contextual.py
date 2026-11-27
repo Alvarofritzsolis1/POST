@@ -86,6 +86,12 @@ SCALARS = {
 }
 CONTEXT_FIELDS = {"origin": "declared_origin", "crew": "crew_size", "channel": "preferred_contact"}
 SAFE_FRAGMENT = re.compile(r"[\w ,./'()áéíóúñ+-]+", re.IGNORECASE)
+# References to previously mentioned trades are not new specialties.
+_REFERENTIAL_TRADE = re.compile(
+    r"^(?:(?:ambas|ambos|las dos|los dos|estas|estos|esas|esos|otras|otros|varias|varios) "
+    r"(?:partidas|trabajos|labores|oficios|servicios|especialidades)|(?:las|los) (?:partidas|trabajos|oficios))$"
+)
+
 EXACT_TOTAL = re.compile(r"(?:(?:somos|en total somos) )?(\d{1,4})(?: personas)?(?: en total)?")
 UNCONFIRMED_ACTION = re.compile(
     r"\b(?:ya (?:avise|notifique|derive|contacte)|(?:avise|notifique|derive) (?:al equipo|tu consulta)|"
@@ -371,6 +377,8 @@ def field_supported(field, value, clause, prior, message_statements):
         return bool(time and ("availability" in intake_question_fields(prior) or re.search(
             r"\b(?:disponib\w*|puedo|parto|arranco|empiezo|comienzo|a partir de|desde)\b", clause)))
     if field == "trade":
+        if _REFERENTIAL_TRADE.fullmatch(plain(value)):
+            return False
         return bool(next(trade_mentions(value, extra=EXTRA_TRADES), None)
                     or any(value in work["trade"] for work in OWN_WORK.finditer(clause)))
     return True
@@ -534,6 +542,8 @@ def apply_declarations(db, lead, declarations):
             return True
 
         if field == "trade":
+            if _REFERENTIAL_TRADE.fullmatch(plain(value)):
+                continue
             trade = canonical_trade(value)
             _, changed = record_declared_trades(db, lead, fragment.text, remote_id=mid,
                                                 declarations={trade: True}, at=at, historical=True)
