@@ -1345,3 +1345,9 @@ def test_feedback_export_admin_tenant_and_text_opt_in(ai_env):
     for forbidden in ("987654321", "prueba@example.cl", "Persona Prueba", "NO_EXPORTAR_ORG_AJENA"):
         assert forbidden not in response.text
     assert response.headers["cache-control"] == "no-store"
+    assert response.json()["schema_version"] == 2
+    assert "source_inventory" in response.json()
+    assert "coverage" in response.json()
+    assert response.json()["runtime_configuration"]["galancito_local_model"]
+    assert "api_key" not in str(response.json()["runtime_configuration"])
+    assert client.get(endpoint + "?days=8").status_code == 422

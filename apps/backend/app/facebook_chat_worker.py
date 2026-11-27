@@ -323,7 +323,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         decision = None
         requested_handoff = False
         requires_verified_details = False
-        trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
+        trace = {"trace_version": 2, "outbound_message_id": job_id, "lead_id": lead_id, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
         if state == "ai_pending":
             turns = list(db.scalars(select(FacebookChatMessage).where(
@@ -331,10 +331,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 FacebookChatMessage.state.in_(["received", "sent"]),
             ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(60)))
             focus = reply_focus(turns)
+            trace["inbound_message_id"] = focus.id if focus else None
             latest = focus.body if focus else ""
             requires_verified_details = worksite_details_question(latest)
             facts = profile_facts(lead, changed=bool(focus and lead.profile_sources and
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
+            trace["profile_fields_before"] = sorted(key for key, value in facts.items() if value is not None and value != "" and value != [] and key != "turn_changed")
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
             phone_ack = confirmed_phone_reply(lead, latest, prior_question)
@@ -411,6 +413,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         limit=MAX_CONTEXT_CHARS - (len(PROTOCOL) + 1 if semantic_protocol else 0))
                 if semantic_protocol:
                     context = PROTOCOL + "\n" + context
+                trace["candidate_history_ids"] = [turn.id for turn in turns]
                 trace["context_turns"] = count
                 trace["known_fields"] = sum(bool(value) for key, value in facts.items()
                                             if key not in {"field_states", "turn_changed", "manual_fields"})
@@ -614,7 +617,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 if automated_reply:
                     record_run(db, org_id=org_id, channel="messenger", source="cancelled",
                                intent=intent, started=started, db_ms=db_ms,
-                               timings={**timings, "graph_calls": graph_calls + int(typing_started),
+                               timings={**timings, **trace, "graph_calls": graph_calls + int(typing_started),
                                         "cancelled": True})
                 return True
             if structured_fragments:
@@ -636,6 +639,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                             trace["verified_guidance"] = "saved_intake"
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
+            trace["profile_fields_after"] = sorted(key for key, value in profile_facts(current).items() if value is not None and value != "" and value != [] and key != "turn_changed")
             if failed_ai:
                 flag_for_human(db, current, "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
                 current_job.state, current_job.error = "cancelled", "Derivada a atención humana"
