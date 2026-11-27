@@ -14,7 +14,7 @@ from .galancito_evidence import (EXTRA_TRADES, ORIGIN_PREFIX, OWN_WORK, QUALIFIE
                                 _channel_mentions, channel_preference,
                                 crew_mentions, declaration_segments, evidence_options,
                                 explicit_channel_mentions, location_mentions)
-from .galancito_flow import consented_for, grounded_reply, retired_permission_prompt
+from .galancito_flow import messenger_model_authorized, grounded_reply, retired_permission_prompt
 from .galancito_intake import (
     UNKNOWN_NAMES, acceptable_intake_draft, intake_question_fields, needs_deeper_response,
     pending_professional_questions, role_mentions, small_talk_reply,
@@ -113,7 +113,8 @@ def enabled(cfg):
 
 
 def authorized(cfg, lead):
-    return enabled(cfg) and (consented_for(lead, "ollama") or consented_for(lead, "team"))
+    return enabled(cfg) and (messenger_model_authorized(cfg, lead, "ollama")
+                             or messenger_model_authorized(cfg, lead, "team"))
 
 
 def eligible(body):
