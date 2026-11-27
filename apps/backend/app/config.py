@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     facebook_webhook_verify_token: str = ""
     # La IA requiere configuración privada; conversaciones y propuestas nunca se envían
     # a modelos externos cuando esta opción está desactivada.
+    # Enable only after documenting a valid local processing basis and notice.
+    # Never grants permission to send messages to external providers.
+    facebook_local_processing_authorized: bool = False
     facebook_ai_enabled: bool = False
     # Messenger auto-responses use FACEBOOK_AI_ENABLED, Meta permissions and consent.
     facebook_ai_ad_enabled: bool = False

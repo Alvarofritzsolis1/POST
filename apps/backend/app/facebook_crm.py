@@ -32,7 +32,7 @@ from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, digital_help_reply, is_worksite_question, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (
-    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, explain_permission, wants_human,
+    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, messenger_model_authorized, explain_permission, wants_human,
 )
 from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTradeGuide,
                                   FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace)
@@ -40,6 +40,7 @@ from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
 from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
+from .facebook_refresh_policy import automatic_refresh_allowed
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
@@ -53,6 +54,7 @@ from .galancito_intake import (
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
     prior_delivered_prompt, professional_message, profile_facts, messenger_context, recover_missing_contact,
+    iter_recovery_messages, recovery_scope,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
@@ -355,7 +357,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 FacebookPostJob.post_record_id == post.id,
                 FacebookPostJob.action == "refresh",
                 FacebookPostJob.state.in_(["pending", "sending"])).limit(1))
-            if not already_queued:
+            if not already_queued and automatic_refresh_allowed(
+                    db, post.id, post.org_id, post.page_id, received_at):
                 db.add(FacebookPostJob(
                     org_id=cfg.facebook_org_id, post_record_id=post.id,
                     page_id=post.page_id,
@@ -435,10 +438,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                                     prior_prompt=previous_question)
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
-            signal = "Prefirió atención humana y no autorizó IA externa"
+            signal = "Prefirió atención humana y rechazó el uso de IA"
         if (signal and not audio_received and not wants_human(body) and consent is not False
                 and not lead.ai_paused and not lead.needs_support and local_first_messenger(cfg)
-                and consented_for(lead, messenger_contact_ai_source(db, lead, cfg))):
+                and messenger_model_authorized(cfg, lead, messenger_contact_ai_source(db, lead, cfg))):
             signal = None  # Authorized Qwen gets a chance to explain before handoff.
         if signal:
             flag_for_human(db, lead, signal)
@@ -498,7 +501,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             # worksite facts and consent operations keep their verified path.
             if (direct and not (location or application or digital_help or phone_saved or phone_ack)
                     and direct == everyday_question_reply(body)
-                    and consented_for(lead, configured_source)):
+                    and messenger_model_authorized(cfg, lead, configured_source)):
                 direct = None
             # Let Qwen choose the next conversational question when authorized.
             application_model = bool(application and direct == application and not phone_saved and not phone_ack
@@ -506,14 +509,14 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                                      and local_first_messenger(cfg)
                                      and application_ai_candidate(body, previous_question))
             if (digital_help and direct == digital_help and not phone_ack and not signal
-                    and local_first_messenger(cfg) and consented_for(lead, configured_source)):
+                    and local_first_messenger(cfg) and messenger_model_authorized(cfg, lead, configured_source)):
                 direct = None
-            if application_model and consented_for(lead, configured_source):
+            if application_model and messenger_model_authorized(cfg, lead, configured_source):
                 direct = None
             else:
                 application_model = False
             contact_model = bool(phone_ack and direct and not signal and not lead.needs_support
-                and local_first_messenger(cfg) and consented_for(lead, configured_source)
+                and local_first_messenger(cfg) and messenger_model_authorized(cfg, lead, configured_source)
                 and contact_pending_questions(profile_facts(lead, changed=changed), previous_question))
             contact_fallback = direct if contact_model else None
             if contact_model:
@@ -572,7 +575,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif lead.needs_support:
                 # Conversaciones difíciles pasan a revisión humana.
                 reply = None
-            elif consented_for(lead, ai_source):
+            elif messenger_model_authorized(cfg, lead, ai_source):
                 if not (waiting_for_ai or consent_reply):
                     reply = intake
                 use_ai = not reply or model_intake_candidate(body, facts, previous_question, reply)
@@ -1167,32 +1170,83 @@ def recover_contact_fields(lead_id: str, user: User = Depends(administrator),
     return _lead_view(db, lead)
 
 
-@router.post("/leads/{lead_id}/refresh-profile")
-def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
-                             db: Session = Depends(get_db)):
-    """Idempotent, local replay of recorded declarations; no outside AI call.
-
-    Recovers short names given to an older question like "¿Cuál es tu nombre?"
-    while respecting names already set by an operator or Meta.
-    """
-    lead = _lead(db, user, lead_id, lock=True)
-    recover_missing_contact(db, lead)
-    messages = list(db.scalars(select(FacebookChatMessage).where(
-        FacebookChatMessage.org_id == user.org_id,
-        FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))[::-1]
-    previous_question = ""
+def _replay_declared_profile(db, lead):
+    """Recover all persisted messages in bounded pages, without replies or external calls."""
+    recovery = recovery_scope(db, lead)
+    recover_missing_contact(db, lead, full_history=True)
+    previous_question, question_at = "", None
     aliases = approved_trade_aliases(db, lead.org_id)
-    for item in messages:
+    count = 0
+    for item in iter_recovery_messages(db, lead):
+        count += 1
         if item.direction == "outbound":
             if item.state == "sent":
-                previous_question = item.body or ""
+                previous_question, question_at = item.body or "", aware(item.updated_at)
         elif item.direction == "inbound":
+            at = aware(item.created_at)
+            prior = previous_question if question_at and timedelta(0) <= at - question_at <= timedelta(hours=24) else ""
             if item.consent_decision is None:
-                apply_messenger_message(db, lead, item.body or "", previous_question,
-                                        remote_id=item.remote_id, at=aware(item.created_at),
-                                        replay=True, aliases=aliases)
-            previous_question = ""
+                apply_messenger_message(db, lead, item.body or "", prior,
+                                        remote_id=item.remote_id, at=at,
+                                        replay=True, aliases=aliases, recovery=recovery)
+            previous_question, question_at = "", None
+    return {"messages_examined": count, "history_truncated": False,
+            "history_scope": "persisted_messenger_messages", "page_size": 200}
+
+
+def _recovery_snapshot(db, lead):
+    # Detach mutable JSON and keep raw contact values out of the diagnostic.
+    from copy import deepcopy
+    facts = profile_facts(lead)
+    facts["trades"] = sorted(active_trades(db, lead))
+    facts["phone_recorded"] = bool(lead.contact_phone)
+    facts["email_recorded"] = bool(lead.contact_email)
+    return deepcopy(facts)
+
+
+@router.post("/leads/{lead_id}/refresh-profile")
+def refresh_declared_profile(lead_id: str, dry_run: bool = False,
+                             user: User = Depends(administrator),
+                             db: Session = Depends(get_db)):
+    """Preview or recover evidence-backed fields without sending any messages."""
+    lead = _lead(db, user, lead_id, lock=True)
+    if dry_run:
+        before = _recovery_snapshot(db, lead)
+        savepoint = db.begin_nested()
+        try:
+            coverage = _replay_declared_profile(db, lead)
+            db.flush()
+            after = _recovery_snapshot(db, lead)
+            changed = {key: {"before": before.get(key), "after": after.get(key)}
+                       for key in after if before.get(key) != after.get(key)}
+            # Provide the persisted inbound evidence identifiers, not message text.
+            sources = lead.profile_sources or {}
+            evidence = {key: sources[key].get("message_id") for key in changed
+                        if isinstance(sources.get(key), dict)}
+            for key, field in (("phone_recorded", "contact_phone"), ("email_recorded", "contact_email")):
+                if key in changed:
+                    evidence[key] = (sources.get(field) or {}).get("message_id")
+            trade_evidence = {row.trade: {"message_id": row.source_remote_id, "active": row.active,
+                                          "source": row.source}
+                              for row in db.scalars(select(FacebookLeadTrade).where(
+                                  FacebookLeadTrade.org_id == lead.org_id,
+                                  FacebookLeadTrade.lead_id == lead.id))}
+            for trade in set(before["trades"]) ^ set(after["trades"]):
+                evidence["trades." + trade] = (trade_evidence.get(trade) or {}).get("message_id")
+            if "contact_available" in changed:
+                evidence["contact_available"] = [evidence[key] for key in ("phone_recorded", "email_recorded")
+                                                 if evidence.get(key)]
+            evidence.update({"declared_context." + key: entry.get("message_id")
+                             for key, entry in (sources.get("_declared_context") or {}).items()
+                             if isinstance(entry, dict) and
+                             before.get("declared_context", {}).get(key) !=
+                             after.get("declared_context", {}).get(key)})
+            result = {"dry_run": True, "lead_id": lead_id, **coverage,
+                      "changes": changed, "evidence": evidence, "trade_evidence": trade_evidence}
+        finally:
+            savepoint.rollback()
+        return result
+    _replay_declared_profile(db, lead)
     lead.updated_at = utcnow()
     db.commit()
     return _lead_view(db, lead)

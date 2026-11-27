@@ -149,7 +149,8 @@ def audit_event(db: Session, lead, event: str, *, source: str = "system",
 def record_declared_trades(db: Session, lead, message: str, *,
                            remote_id: str | None = None, prior_prompt: str = "",
                            declarations: dict[str, bool] | None = None,
-                           historical: bool = False, at=None) -> tuple[list[str], bool]:
+                           historical: bool = False, at=None,
+                           recovery_protected: set[str] | None = None) -> tuple[list[str], bool]:
     """Keep additions and explicit corrections in the existing trade history."""
     detected = declarations if declarations is not None else trade_declarations(message, prior_prompt)
     if not detected:
@@ -179,7 +180,9 @@ def record_declared_trades(db: Session, lead, message: str, *,
             existing.append(stored)
             by_trade[plain(trade)] = stored
             audit_event(db, lead, "trade_added", trade=trade, source="message", remote_id=remote_id)
-        elif stored and stored.source == "message" and stored.active != present and not historical:
+        elif (stored and stored.source == "message" and stored.active != present and
+              (not historical or (recovery_protected is not None and
+                                  plain(canonical_trade(trade)) not in recovery_protected))):
             stored.active, stored.updated_at = present, now
             changed = True
             stored.source_remote_id = remote_id

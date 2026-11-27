@@ -22,6 +22,7 @@ from .network_facebook import meta_http_error
 from .network_models import NetworkFacebookPost, NetworkRequirement
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
 from .facebook_comment_intelligence import classify_comment
+from .facebook_refresh_policy import automatic_refresh_allowed
 
 _ID = re.compile(r"[0-9_]{5,120}")
 _CURSOR = re.compile(r"[A-Za-z0-9._~-]{1,500}")
@@ -326,7 +327,7 @@ def queue_periodic_comment_refresh(session_factory=SessionLocal) -> bool:
             FacebookPostJob.page_id == cfg.facebook_page_id,
             FacebookPostJob.state.in_(["pending", "sending"])))}
         for post_id, org_id, page_id, creator_id, checked_at in rows:
-            if post_id in current:
+            if post_id in current or not automatic_refresh_allowed(db, post_id, org_id, page_id, now):
                 continue
             if checked_at is not None:
                 if checked_at.tzinfo is None:

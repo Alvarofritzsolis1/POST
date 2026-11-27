@@ -14,7 +14,7 @@ from .galancito_evidence import (EXTRA_TRADES, ORIGIN_PREFIX, OWN_WORK, QUALIFIE
                                 _channel_mentions, channel_preference,
                                 crew_mentions, declaration_segments, evidence_options,
                                 explicit_channel_mentions, location_mentions)
-from .galancito_flow import consented_for, grounded_reply, retired_permission_prompt
+from .galancito_flow import messenger_model_authorized, grounded_reply, retired_permission_prompt
 from .galancito_intake import (
     UNKNOWN_NAMES, acceptable_intake_draft, intake_question_fields, needs_deeper_response,
     pending_professional_questions, role_mentions, small_talk_reply,
@@ -113,7 +113,8 @@ def enabled(cfg):
 
 
 def authorized(cfg, lead):
-    return enabled(cfg) and (consented_for(lead, "ollama") or consented_for(lead, "team"))
+    return enabled(cfg) and (messenger_model_authorized(cfg, lead, "ollama")
+                             or messenger_model_authorized(cfg, lead, "team"))
 
 
 def eligible(body):
@@ -156,14 +157,36 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
     fields = {key: val for key, val in facts.items()
               if key not in {"display_name", "turn_changed", "manual_fields"}
               and val not in (None, "", [], {}, "unknown")}
-    lines = ["Ficha acumulada: " + json.dumps(fields, ensure_ascii=False)]
+    # Preserve complete facts, the prior question and verified reference before
+    # optional history/examples. Never cut a JSON field in half.
+    budget = 1650
+    lines = []
+    def add(line):
+        if len("\n".join([*lines, line])) > budget:
+            return False
+        lines.append(line)
+        return True
+
+    if prior and not private_data(prior) and (text := messenger_prompt_text(prior)):
+        add("Pregunta anterior de GALANT: " + text[:160])
     declared_context = facts.get("declared_context", {})
     if declared_context.get("notice_trade"):
-        lines.append("notice_trade describe el aviso consultado. No confirma el oficio propio.")
+        add("notice_trade describe el aviso consultado. No confirma el oficio propio.")
     if declared_context.get("additional_services_pending"):
-        lines.append("Dijo que hace otros trabajos. Pregunta cuáles si es útil. Conserva sus oficios declarados.")
+        add("Dijo que hace otros trabajos. Pregunta cuáles si es útil. Conserva sus oficios declarados.")
     if "worked_at_galilea" in declared_context:
-        lines.append("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
+        add("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
+    if evidence and (text := messenger_prompt_text(evidence_context(evidence[:1]))):
+        add("Referencia de GALANT: " + text[:450])
+    if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
+        add("Orientación aprobada: " + text[:300])
+
+    packed = {}
+    for field, value in fields.items():
+        trial = {**packed, field: value}
+        if len("\n".join([*lines, "Ficha acumulada: " + json.dumps(trial, ensure_ascii=False)])) <= budget:
+            packed = trial
+    add("Ficha acumulada: " + json.dumps(packed, ensure_ascii=False))
     current_ids = {item.message_id for item in fragments}
     recent = []
     for item in turns:
@@ -171,25 +194,20 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
             continue
         text = messenger_prompt_text(item.body)
         if text and not private_data(text):
-            recent.append(("Persona: " if item.direction == "inbound" else "GALANT: ") + text[:130])
+            candidate = [*recent, ("Persona: " if item.direction == "inbound" else "GALANT: ") + text[:130]]
+            line = "Historial anterior: " + " | ".join(reversed(candidate))
+            if len("\n".join([*lines, line])) > budget:
+                break
+            recent = candidate
         if len(recent) >= 5:
             break
     if recent:
-        lines.append("Historial anterior: " + " | ".join(reversed(recent)))
-    if prior and not private_data(prior) and (text := messenger_prompt_text(prior)):
-        lines.append("Pregunta anterior de GALANT: " + text[:160])
-    if evidence and (text := messenger_prompt_text(evidence_context(evidence[:1]))):
-        lines.append("Referencia de GALANT: " + text[:450])
-    if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
-        lines.append("Orientación aprobada: " + text[:300])
-    context = "\n".join(lines)
+        add("Historial anterior: " + " | ".join(reversed(recent)))
     example = next((sample for fragment in reversed(fragments)
                     if (sample := conversation_example(fragment.text, prior))), "")
     if example:
-        coaching = "\nEjemplo de práctica, no información de la obra: " + example
-        if len(context) + len(coaching) <= 1650:
-            context += coaching
-    return context[:1650], len(recent)
+        add("Ejemplo de práctica, no información de la obra: " + example)
+    return "\n".join(lines), len(recent)
 
 
 def request_attribution(fragments, options):
@@ -242,7 +260,20 @@ def latest_question(fragments):
     return ""
 
 
-def request_turn(context, fragments, *, revision="", policy="", accepted=()):
+def _pending_reply_topics(facts, accepted):
+    """A field already persisted or attributed must not be requested again."""
+    labels = {"experience": "experiencia en el oficio",
+              "availability": "disponibilidad para empezar",
+              "area": "comunas donde puede trabajar"}
+    profile_keys = {"experience": "experience", "availability": "availability",
+                    "area": "work_communes"}
+    declared = {field for field, _, _ in accepted}
+    pending = pending_professional_questions(facts) if facts is not None else None
+    return {field: label for field, label in labels.items()
+            if field not in declared and (pending is None or profile_keys[field] in pending)}
+
+
+def request_turn(context, fragments, *, revision="", policy="", accepted=(), facts=None):
     prefix = "Mensajes nuevos (única fuente para datos nuevos):\n"
     batch = json.dumps([item.text for item in fragments], ensure_ascii=False)
     known = ("Datos propios ya confirmados para este turno: "
@@ -273,11 +304,8 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
         )
         properties = {field: FORMAT["properties"][field] for field in ("i", "r", "q", "d")}
         if is_declaration_turn(fragments):
-            topics = {"experience": "cuánto tiempo lleva en su oficio",
-                      "availability": "desde cuándo está disponible",
-                      "area": "en qué comunas puede trabajar"}
             declared = {field for field, _, _ in accepted}
-            pending = {field: topic for field, topic in topics.items() if field not in declared}
+            pending = _pending_reply_topics(facts, accepted)
             properties["i"] = {"const": "intake" if declared - {"channel"} else "contact"}
             properties["q"] = {"enum": [*pending, "none"]}
             instructions += ("\nLa persona te presentó datos. No necesitas preguntarle qué proyecto busca. "
@@ -285,7 +313,40 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
                              + json.dumps(pending, ensure_ascii=False)
                              + ". Usa una sola pregunta sobre el mismo tema que q. Si no hace falta, agradece.")
         response_format = {**FORMAT, "required": ["i", "r", "q"], "properties": properties}
-    if revision or not is_declaration_turn(fragments):
+    if facts is not None and is_declaration_turn(fragments) and (accepted or revision):
+        pending = _pending_reply_topics(facts, accepted)
+        if revision:
+            response_format = {**response_format, "properties": {
+                **response_format["properties"],
+                "i": {"enum": ["intake", "contact"]},
+                "q": {"enum": [*pending, "none"]},
+            }}
+        instructions += ("\nCampos que todavía puedes preguntar (no es un guion): "
+                         + json.dumps(pending, ensure_ascii=False)
+                         + ". No preguntes ningún campo fuera de esa lista. "
+                         "Si eliges q=none, escribe un reconocimiento útil sin interrogación. "
+                         "Si eliges un campo, formula una sola pregunta concreta en r, con ¿ y ?. "
+                         "Evita frases de formulario, menús y respuestas en primera persona del contratista.")
+    # Avoid generic clarification instructions when repairing intake.
+    if revision and facts is not None and is_declaration_turn(fragments) and pending:
+        examples = {"area": "¿En qué comuna puedes trabajar?",
+                    "experience": "¿Cuánto tiempo llevas en ese oficio?",
+                    "availability": "¿Desde cuándo podrías comenzar?"}
+        response_format = {**REPLY_FORMAT, "properties": {
+            **REPLY_FORMAT["properties"], "i": {"const": "intake"},
+            "q": {"enum": list(pending)},
+        }}
+        instructions = (
+            "Eres GALANT. La persona acaba de presentarte datos de su trabajo. "
+            "Escribe una respuesta breve, natural y en segunda persona. Elige tú "
+            "UN tema pendiente según lo que acaba de decir, y pregunta por él. "
+            "No le pidas un dato conocido. Escribe i=intake, q igual al tema elegido, "
+            "d={} y r con una pregunta clara. Estos son ejemplos de significado, "
+            "puedes expresarlos con tus palabras: "
+            + json.dumps({field: examples[field] for field in pending}, ensure_ascii=False)
+            + ". No inventes hechos ni prometas trabajo. No pidas datos privados."
+        )
+    elif not is_declaration_turn(fragments) or (revision and facts is None):
         instructions += "\n" + CONVERSATION_GUIDANCE
     if has_tentative_claim(fragments):
         instructions += ("\nUna posibilidad o condición sigue pendiente. Reconócela sin convertirla en un hecho "
@@ -298,7 +359,7 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
         values = parsed.get("d", {}) if accepted and not revision else parsed["d"]
         if not isinstance(values, dict) or values.keys() - FORMAT["properties"]["d"]["properties"].keys():
             raise ValueError
-        if response_format is REPLY_FORMAT and values:
+        if (revision or response_format is REPLY_FORMAT) and values:
             raise ValueError
         declarations = []
         for field, value in values.items():
@@ -434,7 +495,12 @@ def reconcile_declarations(declarations):
     return sorted(result, key=lambda item: item[2].at)
 
 
-def validated_reply(decision, facts, declarations, context, fragments, *, prior=""):
+def validated_reply(decision, facts, declarations, context, fragments, *, prior="", rejections=None):
+    def reject(reason):
+        if rejections is not None:
+            rejections.append(reason)
+        return None
+
     actual = {field for field, value, _ in declarations if value}
     known = {
         "trade": facts.get("specialty") or facts.get("trades"),
@@ -453,53 +519,54 @@ def validated_reply(decision, facts, declarations, context, fragments, *, prior=
         reply = reply.split("?", 1)[0].strip() + "?"
     normalized_reply = plain(reply)
     if UNCONFIRMED_ACTION.search(normalized_reply) or SPECULATIVE_CLAIM.search(normalized_reply):
-        return None
+        return reject("unsupported_claim")
     question_text = latest_question(fragments)
     if (not declarations and not question_text and has_tentative_claim(fragments)
             and not PENDING_CONFIRMATION.search(normalized_reply)):
-        return None
+        return reject("tentative_claim")
     for part in fragments:
         normalized_input = plain(part.text)
         min_words = 3 if "?" in part.text else 4
         quoted_questions = re.findall(r"¿([^?]+)(?:\?|$)", part.text)
         if (len(normalized_input.split()) >= min_words and normalized_input == normalized_reply
                 or any(plain(question) == normalized_reply for question in quoted_questions)):
-            return None
+            return reject("echo")
     if re.match(r"^(?:(?:hola|buenas) )?(?:soy (?:un[oa]? )?(?:contratista|maestr[oa]|"
                 r"trabajador[ai]?|pintor[ai]?|especialista)|hago|trabajo de|me dedico|somos)\b",
                 normalized_reply):
-        return None
+        return reject("wrong_speaker")
     known_fields = {
         "trade": "specialty", "crew": "workers", "area": "work_communes", "team": "team_available",
         "contact": "contact_phone", **SCALARS,
     }
     asked = intake_question_fields(reply)
     if asked and (has_tentative_claim(fragments) or any(asks_for_explanation(part.text) for part in fragments)):
-        return None
+        return reject("intake_instead_of_explanation")
     if asked and question_text:
         intro = plain(reply.split("¿", 1)[0]) if "¿" in reply else ""
         if len(intro.split()) < 4 or decision.i in {"intake", "contact"}:
-            return None  # A bare intake question leaves the sender's actual request unanswered.
+            return reject("unanswered_question")
     if any(known_fields.get(field) in asked for field in actual
            if decision.i != "clarification"):
-        return None
+        return reject("repeated_attributed_field")
     detected = {field for field, key in known_fields.items() if key in asked}
     if (decision.i in {"intake", "contact"} and decision.q in {"area", "experience", "availability"}
             and detected != {decision.q}):
-        return None
+        return reject("question_field_mismatch")
     question = next(iter(detected)) if len(detected) == 1 else decision.q
     if "?" in reply:
         asked_text = plain(reply.rsplit("¿", 1)[-1])
         prior_text = plain(prior.rsplit("¿", 1)[-1]) if "?" in prior else ""
         if (prior_text and asked_text == prior_text) or GENERIC_QUESTION.fullmatch(asked_text):
-            return None
-    if "?" in reply and (question == "none" or ((known.get(question) or question in actual)
-                                              and decision.i != "clarification")):
-        return None
+            return reject("generic_or_repeated_question")
+    if "?" in reply and question == "none":
+        return reject("unlabeled_question")
+    if "?" in reply and (known.get(question) or question in actual) and decision.i != "clarification":
+        return reject("known_question_" + question)
     if (reply.count("?") > 1 or (question != "none" and "?" not in reply)
             or re.search(r"[\u3400-\u9fff]", reply) or not acceptable_intake_draft(reply, facts)):
-        return None
-    return grounded_reply(reply, context)
+        return reject("intake_validation")
+    return grounded_reply(reply, context) or reject("grounding")
 
 
 def verified_followup(decision, facts, fragments):

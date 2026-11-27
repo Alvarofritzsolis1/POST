@@ -153,6 +153,32 @@ def consented_for(lead, provider: str) -> bool:
                     "accepted_team" if provider == "team" else "accepted"))
 
 
+def messenger_model_authorized(cfg, lead, provider: str) -> bool:
+    """Local processing policy is distinct from provider-specific consent.
+
+    Explicit refusal and human takeover always prevail. The deployment flag
+    is deliberately false by default and scoped to the configured Meta tenant.
+    Never mutate a contact's recorded consent or use it for an external API.
+    """
+    if (getattr(lead, "ai_paused", False) or getattr(lead, "needs_support", False)
+            or lead.ai_consent_state == "declined"):
+        return False
+    if consented_for(lead, provider):
+        return True
+    return bool(
+        provider == "ollama"
+        and getattr(cfg, "facebook_local_processing_authorized", False)
+        and getattr(cfg, "facebook_ai_enabled", False)
+        and getattr(cfg, "facebook_ai_provider", "") == "ollama"
+        and getattr(cfg, "galancito_local_ai_enabled", False)
+        and getattr(cfg, "facebook_org_id", None)
+        and getattr(lead, "org_id", None) == cfg.facebook_org_id
+        and getattr(cfg, "facebook_page_id", None)
+        and getattr(lead, "page_id", None) == cfg.facebook_page_id
+        and lead.ai_consent_state == "not_requested"
+    )
+
+
 def external_permission_prompt(message: str) -> bool:
     """Recognize retired notices for external providers, never grant consent."""
     value = _plain(message)

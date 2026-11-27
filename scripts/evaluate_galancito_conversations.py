@@ -63,7 +63,7 @@ def metrics(values):
             "p95_ms": round(ordered[math.ceil(.95 * len(ordered)) - 1], 3)}
 
 
-def run(dataset, source_root, *, real_local=False, contextual=False, loopback=False, limit=None, offset=0):
+def run(dataset, source_root, *, real_local=False, contextual=False, loopback=False, limit=None, offset=0, fresh_local=False):
     sys.path.insert(0, str(source_root / "apps/backend"))
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -139,6 +139,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
             "FACEBOOK_AI_API_KEY": "", "GALANCITO_LOCAL_AI_ENABLED": "true" if real_local else "false",
             "GALANCITO_LOCAL_MODEL": QWEN_2B,
             "GALANCITO_CONTEXTUAL_MESSENGER_ENABLED": str(contextual).lower(),
+            "FACEBOOK_LOCAL_PROCESSING_AUTHORIZED": str(fresh_local).lower(),
         }
         with (patch.dict(os.environ, env),
               patch("app.facebook_chat_worker.graph_send", graph_send),
@@ -150,7 +151,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
             for index, case in enumerate(cases, start=1):
                 psid = str(70000000000 + index)
                 expected = {} if real_local else dict(DEFAULT_PROFILE)
-                if real_local:
+                if real_local and not fresh_local:
                     # This explicit synthetic authorization is never written to production.
                     with session.begin() as db:
                         db.add(FacebookLead(org_id=org_id, page_id=env["FACEBOOK_PAGE_ID"], psid=psid,
@@ -211,6 +212,10 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                 stats = run_record.timings or {}
                                 observed.append({"source": run_record.source, "intent": run_record.intent,
                                     "model": stats.get("response_model"), "fallback_reason": stats.get("fallback_reason"),
+                                    "model_requested": stats.get("model_requested"),
+                                    "model_draft_selected": stats.get("model_draft_selected"),
+                                    "reply_origin": stats.get("reply_origin"),
+                                    "delivery_error": stats.get("delivery_error"),
                                     "question_field": stats.get("question_field"),
                                     "guided_followup": stats.get("guided_followup"),
                                     "verified_guidance": stats.get("verified_guidance"),
@@ -276,6 +281,10 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                            if expected_intents else {}),
                         **({"batched": len(replies) == turn["replies"] or allows_handoff}
                            if "replies" in turn else {}),
+                        **({"model_reply_selected": any(item["model"] == QWEN_2B and
+                            item["reply_origin"] == "local_model" and item["model_draft_selected"] is True
+                            and item["delivery_error"] is False for item in observed) and bool(answer)}
+                           if real_local and turn.get("requires_model_reply") else {}),
                     }
                     turns.append({"turn": number, "message": redact(turn["message"]), "checks": checks,
                                   "profile_errors": redact(errors), "expected_profile": redact(expected),
@@ -294,6 +303,15 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                 "model_calls": case_model_calls, "turns": turns})
                 if real_local:
                     print(f'{case["id"]}: {("PASS" if results[-1]["passed"] else "FAIL")}', file=sys.stderr, flush=True)
+                    if not results[-1]["passed"]:
+                        # Synthetic evaluation: expose failed checks and reason codes, not contact values.
+                        print(json.dumps({"case": case["id"], "failed_turns": [
+                            {"turn": t["turn"], "checks": [k for k, ok in t["checks"].items() if not ok],
+                             "runs": [{"reply_origin": x.get("reply_origin"),
+                                       "fallback_reason": x.get("fallback_reason"),
+                                       "model_draft_selected": x.get("model_draft_selected")}
+                                      for x in t["runs"]]}
+                            for t in turns if not all(t["checks"].values())]}), file=sys.stderr, flush=True)
             settings.cache_clear()
         engine.dispose()
     report = {"dataset": dataset.name, "conversations": len(cases), "turns": len(measurements),
@@ -310,6 +328,11 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
         report.update(contextual_enabled=contextual, mode="real_local", local_model_calls=local_calls, input_tokens=input_tokens,
                       output_tokens=output_tokens, observed_models=sorted(observed_models),
                       real_model_verified=bool(output_tokens and observed_models == {QWEN_2B}),
+                      fresh_local_contacts=fresh_local,
+                      reply_origins={origin: sum(item.get("reply_origin") == origin for result in results
+                                               for turn in result["turns"] for item in turn["runs"])
+                                     for origin in ("local_model", "external_model", "verified_guidance",
+                                                    "local_policy", "human_handoff", "recovery", None)},
                       production_verified=False)
     return report
 
@@ -322,13 +345,16 @@ def main():
     parser.add_argument("--real-local", action="store_true", help="Use real isolated Qwen; Meta stays simulated. Requires a Qwen-ready environment and explicit synthetic dataset.")
     parser.add_argument("--contextual", action="store_true", help="Enable the candidate Messenger runtime.")
     parser.add_argument("--ollama-loopback", action="store_true", help="Use Ollama on 127.0.0.1 for isolated evaluation.")
+    parser.add_argument("--fresh-local", action="store_true", help="Exercise a new contact with the explicit local-processing policy and no fabricated consent.")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--offset", type=int, default=0)
     args = parser.parse_args()
     if args.real_local and args.cases == DATA / "galancito_regresion_40.jsonl":
         parser.error("Real-local mode requires a dedicated dataset with explicit independent expectations.")
+    if args.fresh_local and not (args.real_local and args.contextual):
+        parser.error("Fresh local contacts require --real-local and --contextual.")
     report = run(args.cases, args.source_root, real_local=args.real_local, contextual=args.contextual,
-                 loopback=args.ollama_loopback, limit=args.limit, offset=args.offset)
+                 loopback=args.ollama_loopback, limit=args.limit, offset=args.offset, fresh_local=args.fresh_local)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "results"}, ensure_ascii=False))

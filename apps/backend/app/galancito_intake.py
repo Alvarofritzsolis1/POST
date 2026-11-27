@@ -462,10 +462,13 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     _commune_update(lead, statement, prev)
     _availability_update(lead, statement, prev, on_date=on_date)
     if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
-        experience = re.search(r"\b" + _COUNT + r"\s*(anos?|mes(?:es)?)\b", value)
+        experience = re.search(r"\b(?:(mas de|casi|cerca de|alrededor de|aproximadamente|unos|unas) )?"
+                               + _COUNT + r"\s*(anos?|mes(?:es)?)\b", value)
         asked = "experience" in intake_question_fields(prior_prompt) or any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
-        volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
-                       and not re.search(r"\b(?:viviendo|residiendo)\b", value))
+        volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value)
+                            or re.search(r"\b(?:soy|voy|trabajo|trabajamos) (?:\w+ ){0,3}(?:maestr[oa]|contratista|independiente)\b", value))
+                       and not re.search(r"\b(?:edad|de vida|viviendo|residiendo)\b", value)
+                       and not re.search(r"\b(?:no soy|no tengo|no llevo|no trabajo|no se si|quizas)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
                 asked and value in {"ninguna", "no tengo", "nuevo", "nuevo en esto"}):
             lead.experience = "Sin experiencia declarada"
@@ -478,14 +481,15 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
         elif experience and (asked or volunteered):
             # Preserve distinct kinds of declared experience without reducing them to the first number.
             if (re.search(r"\b(?:independiente|contratista|por mi cuenta)\b", value) and
-                    re.search(r"\b(?:apatronado|contratado|con contrato|dependiente)\b", value) and
-                    len(re.findall(_COUNT, value)) >= 2):
+                    re.search(r"\b(?:apatronado|contratado|con contrato|dependiente|maestr[oa])\b", value) and
+                    len(re.findall(_COUNT + r"\s*(?:anos?|mes(?:es)?)\b", value)) >= 2):
                 lead.experience = statement.strip()[:250]
                 return
-            amount = experience[1]
+            qualifier, amount, unit = experience.groups()
             number = int(amount) if amount.isdecimal() else _NUMBERS[amount]
             if 0 <= number <= 99:
-                lead.experience = f"{number} {experience[2]}".replace("ano", "año")
+                prefix = (qualifier.replace("mas de", "más de") + " ") if qualifier else ""
+                lead.experience = (prefix + f"{number} {unit}").replace("ano", "año")
 
 
 def identity_reply(message: str) -> str | None:
@@ -747,7 +751,8 @@ def conversation_fields(facts: dict) -> dict:
         "interest_type": facts.get("interest_type") in {"employment", "service_offer", "both"},
         "entity_type": facts.get("entity_type") not in {None, "", "unknown"},
         "team_available": facts.get("team_available") is not None,
-        "workers": facts.get("workers") is not None,
+        "workers": (facts.get("workers") is not None
+                    or bool((facts.get("declared_context") or {}).get("crew_size"))),
         "has_employees": facts.get("has_employees") is not None,
         "employee_count": facts.get("employee_count") is not None,
         "experience": bool(facts.get("experience")),

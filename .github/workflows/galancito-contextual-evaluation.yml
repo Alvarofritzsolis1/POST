@@ -10,6 +10,10 @@ on:
       - 'apps/backend/app/galancito_memory.py'
       - 'apps/backend/app/facebook_chat_worker.py'
       - 'apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl'
+      - 'apps/backend/tests/fixtures/galancito_core_fresh_contacts.jsonl'
+      - 'apps/backend/app/facebook_crm.py'
+      - 'apps/backend/app/galancito_flow.py'
+      - 'apps/backend/app/config.py'
       - 'scripts/evaluate_galancito_conversations.py'
 
 permissions:
@@ -91,6 +95,13 @@ jobs:
           done
           jq -s 'map({contextual_enabled, conversations, passed, checks, profile_fields, latency, real_model_verified})' \
             "$reports/base.json" "$reports/candidate.json" > "$reports/summary.json"
+      - name: Validar contacto nuevo y respuesta final de Qwen
+        if: matrix.offset == 204
+        run: |
+          python scripts/evaluate_galancito_conversations.py \
+            --cases apps/backend/tests/fixtures/galancito_core_fresh_contacts.jsonl \
+            --real-local --contextual --ollama-loopback --fresh-local \
+            --output "$RUNNER_TEMP/galancito-report/fresh-local.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -100,6 +111,7 @@ jobs:
             ${{ runner.temp }}/galancito-report/candidate.json
             ${{ runner.temp }}/galancito-report/model.json
             ${{ runner.temp }}/galancito-report/summary.json
+            ${{ runner.temp }}/galancito-report/fresh-local.json
           retention-days: 14
       - name: Verificar criterios de aceptación del bloque
         run: |

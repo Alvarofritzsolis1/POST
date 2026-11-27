@@ -24,7 +24,7 @@ from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import is_worksite_question, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
-from .galancito_flow import apply_permission_reply, consented_for, explain_permission, wants_human
+from .galancito_flow import apply_permission_reply, messenger_model_authorized, explain_permission, wants_human
 from .galancito_escalation import flag_for_human
 from .galancito_intake import (
     GALILEA_QUESTION, contact_followup_reply, contact_pending_questions, declared_relative_start,
@@ -261,15 +261,15 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         lead.phone_requested_at = utcnow()
                 configured = messenger_contact_ai_source(db, lead, cfg)
                 if (direct and direct in (digital_help, everyday) and direct not in (location, follow_up)
-                        and not phone_ack and consented_for(lead, configured)
+                        and not phone_ack and messenger_model_authorized(cfg, lead, configured)
                         and (direct == everyday or local_first_messenger(cfg))):
                     direct = None
                 if (application and direct == application and not phone_ack
-                        and local_first_messenger(cfg) and consented_for(lead, configured)
+                        and local_first_messenger(cfg) and messenger_model_authorized(cfg, lead, configured)
                         and application_ai_candidate(body, prior)):
                     direct = None
                 contact_model = bool(contact_reply and local_first_messenger(cfg)
-                    and consented_for(lead, configured)
+                    and messenger_model_authorized(cfg, lead, configured)
                     and contact_pending_questions(facts, prior))
                 source = "disabled" if direct and not contact_model else configured
                 contextual_turn = bool(contextual.authorized(cfg, lead) and not direct
@@ -278,7 +278,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if introducing_phone_number(body) and not (phone_ack or direct):
                     continue
                 if worksite_payment_terms_question(body):
-                    state, reply = "pending", exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                    reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                    state = "pending" if reply or not contextual.authorized(cfg, lead) else "ai_pending"
+                    if state == "ai_pending":
+                        reply = ""
                 elif intake == GALILEA_QUESTION:
                     state, reply = "pending", intake
                 elif contact_model or contextual_turn:
@@ -289,7 +292,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     # Recovered greetings use the same local fast path as the
                     # webhook, even when consent was granted in an older chat.
                     state, reply = "pending", small_talk_reply(body)
-                elif consented_for(lead, source):
+                elif messenger_model_authorized(cfg, lead, source):
                     local = intake
                     if not local and not needs_deeper_response(body):
                         local = quick_reply(body, known=facts)

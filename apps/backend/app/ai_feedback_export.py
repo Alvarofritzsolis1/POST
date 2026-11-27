@@ -68,7 +68,7 @@ DATASETS = {
 }
 TEXT_FIELDS = {"name", "notes", "reason", "aliases", "explanation", "document_guidance", "specialty", "trade", "public_location", "slug", "category","body", "message", "title", "description", "public_summary", "experience", "availability", "work_area", "work_communes", "phrases", "content"}
 TIMING_IDS = {"outbound_message_id", "inbound_message_id", "lead_id"}
-TIMING_LABELS = {"provider", "model", "source", "delivery_state", "error_type", "release", "revision", "question_field", "fallback_reason", "verified_guidance", "guided_followup", "ai_route"}
+TIMING_LABELS = {"reply_origin", "provider", "model", "response_model", "source", "delivery_state", "error_type", "release", "revision", "question_field", "fallback_reason", "model_error_type", "verified_guidance", "guided_followup", "ai_route"}
 TRACE_LISTS = {"semantic_fields", "profile_fields_before", "profile_fields_after", "candidate_history_ids"}
 METRIC_KEYS = {"passed", "failed", "turns", "fields", "correct_fields", "questions", "repeated_questions", "critical", "judged_cases", "judged_turns", "latency_ms", "input_tokens", "output_tokens", "peak_worker_ram_mb", "peak_host_cpu_percent", "real_holdout_gain_cases", "real_holdout_regressions", "synthetic_holdout_gains", "synthetic_holdout_regressions", "real_learning_demonstrated", "objective_gain", "paired_latency_delta_ms", "baseline_ms", "candidate_ms", "elapsed_ms", "safe", "understanding_check"}
 
@@ -208,7 +208,7 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
     result["max_power_state"] = [{key: getattr(state, key) for key in ("enabled", "worker_seen_at", "last_tick_at", "on_seconds", "sessions", "experiments", "examined_cases", "lab_gains", "regressions", "active_round_id", "last_round_id", "last_status", "updated_at")}] if state else []
     policy = db.get(AIOrchestration, user.org_id)
     cfg = settings()
-    runtime = {key: getattr(cfg, key) for key in ("facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
+    runtime = {key: getattr(cfg, key) for key in ("facebook_local_processing_authorized", "facebook_ai_enabled", "facebook_ai_ad_enabled", "facebook_ai_provider", "facebook_ai_model", "galancito_ai_enabled", "galancito_ai_provider", "galancito_local_ai_enabled", "galancito_local_model", "galancito_contextual_messenger_enabled", "galancito_keep_alive", "galancito_num_predict", "galancito_num_ctx", "galancito_num_thread", "galancito_timeout_seconds", "galancito_memory_reserve_mb")}
     message_ids = {row["id"] for row in result["messages"]}
     coverage = {"messenger_runs": sum(row["channel"] == "messenger" for row in result["runs"]),
                 "runs_linked_to_exported_message": sum(row["channel"] == "messenger" and row["timings"].get("outbound_message_id") in message_ids for row in result["runs"]),
