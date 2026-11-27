@@ -21,7 +21,7 @@ from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate
                           messenger_contact_ai_source, local_first_messenger, messenger_external_fallback_enabled)
 from .galancito_hybrid import needs_external_help, select_response
 from .ai_gateway import AIServiceError, orchestrated_text
-from .galancito_flow import wants_human, safe_ai_reply, consented_for, grounded_reply, retired_permission_prompt
+from .galancito_flow import wants_human, safe_ai_reply, consented_for, messenger_model_authorized, grounded_reply, retired_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
@@ -309,7 +309,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         if job.state == "ai_pending" and (lead.ai_paused or lead.ai_consent_state == "declined"):
             job.state, job.error = "cancelled", "Galancito pausado para este contacto"
             return True
-        if job.state == "ai_pending" and not consented_for(lead, ai_source):
+        if job.state == "ai_pending" and not messenger_model_authorized(cfg, lead, ai_source):
             job.state, job.error = "cancelled", "El contacto no autorizó ese proveedor"
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
@@ -504,7 +504,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         current_job = db.get(FacebookChatMessage, job_id)
                         if (current is None or current_job is None or current_job.state != "drafting" or
                                 current.last_inbound_at != inbound_at or current.ai_paused or current.needs_support or
-                                not consented_for(current, ai_source) or messenger_contact_ai_source(db, current, cfg) != ai_source):
+                                not messenger_model_authorized(cfg, current, ai_source) or messenger_contact_ai_source(db, current, cfg) != ai_source):
                             raise ValueError("La conversación cambió durante la preparación")
                         verified_policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
                         prepared_context = context
@@ -623,7 +623,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     (automated_reply and aware(current_job.updated_at) != aware(claimed_at)) or
                     (automated_reply and ((current.ai_paused and not handoff_ack)
                                           or current.last_inbound_at != inbound_at)) or
-                    (state == "ai_pending" and (current.needs_support or not consented_for(current, ai_source)
+                    (state == "ai_pending" and (current.needs_support or not messenger_model_authorized(cfg, current, ai_source)
                      or messenger_contact_ai_source(db, current, cfg) != ai_source))):
                 if current_job and current_job.state == "drafting" and aware(current_job.updated_at) == aware(claimed_at):
                     current_job.state, current_job.error = "cancelled", "La conversación cambió antes del envío"
