@@ -222,3 +222,34 @@ def test_contextual_reply_topics_exclude_persisted_and_new_fields():
     assert _pending_reply_topics(facts, [("availability", "mañana", fragment)]) == {}
     facts["field_states"]["availability"] = "rechazado_por_usuario"
     assert _pending_reply_topics(facts, []) == {}
+
+
+def test_declaration_repair_uses_only_remaining_topics_and_no_conflicting_guidance(monkeypatch):
+    import json
+    from app.galancito_contextual import Fragment, request_turn
+    from app.models import utcnow
+    fragments = (Fragment("synthetic-repair", utcnow(), "Hago pintura en Lebu desde hace 7 años"),)
+    captured = {}
+    def generate(instructions, prompt, *args, **kwargs):
+        captured.update(instructions=instructions, schema=kwargs["response_format"])
+        return json.dumps({"i": "intake", "q": "availability", "d": {},
+                           "r": "Gracias por contarme. ¿Desde cuándo podrías comenzar?"})
+    monkeypatch.setattr("app.galancito_contextual.generate_local_text", generate)
+    decision = request_turn("Ficha confirmada", fragments, revision="Reintentar",
+                            facts={"specialty": "Pintura", "work_communes": ["Lebu"],
+                                   "experience": "7 años"})
+    assert decision.q == "availability"
+    assert captured["schema"]["properties"]["q"]["enum"] == ["availability"]
+    assert "No vuelvas al formulario" not in captured["instructions"]
+    assert "¿Desde cuándo podrías comenzar?" in captured["instructions"]
+
+
+def test_rejects_question_about_already_known_field_with_specific_reason():
+    from app.galancito_contextual import Fragment, Turn, validated_reply
+    from app.models import utcnow
+    fragment = Fragment("synthetic-known", utcnow(), "Hago pintura")
+    reasons = []
+    draft = Turn(i="intake", q="experience", d=[], r="¿Cuánto tiempo llevas en ese oficio?")
+    assert validated_reply(draft, {"experience": "7 años"}, [], fragment.text,
+                           (fragment,), rejections=reasons) is None
+    assert reasons == ["known_question_experience"]

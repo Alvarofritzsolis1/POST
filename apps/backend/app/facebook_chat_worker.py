@@ -800,8 +800,9 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
         repairing_intake = (phase == "repair" and decision and declarations
                             and decision.i in {"intake", "contact"} and contextual.is_declaration_turn(fragments))
         if repairing_intake:
-            revision = ("La persona presentó sus datos y no hizo una consulta. Agradece brevemente o pregunta "
-                        "por un solo dato profesional pendiente. Conserva i=" + decision.i + ".")
+            revision = ("La persona presentó sus datos y no hizo una consulta. "
+                        "Pregunta por un solo dato profesional pendiente o reconoce lo que dijo "
+                        "si no queda un tema aplicable. Conserva la intención de registro.")
         with session_factory.begin() as db:
             if not is_current(db):
                 return (None, [], None), "fallback", timings, "superseded"

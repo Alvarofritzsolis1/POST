@@ -327,7 +327,26 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=(), fac
                          "Si eliges q=none, escribe un reconocimiento útil sin interrogación. "
                          "Si eliges un campo, formula una sola pregunta concreta en r, con ¿ y ?. "
                          "Evita frases de formulario, menús y respuestas en primera persona del contratista.")
-    if revision or not is_declaration_turn(fragments):
+    # Avoid generic clarification instructions when repairing intake.
+    if revision and facts is not None and is_declaration_turn(fragments) and pending:
+        examples = {"area": "¿En qué comuna puedes trabajar?",
+                    "experience": "¿Cuánto tiempo llevas en ese oficio?",
+                    "availability": "¿Desde cuándo podrías comenzar?"}
+        response_format = {**REPLY_FORMAT, "properties": {
+            **REPLY_FORMAT["properties"], "i": {"const": "intake"},
+            "q": {"enum": list(pending)},
+        }}
+        instructions = (
+            "Eres GALANT. La persona acaba de presentarte datos de su trabajo. "
+            "Escribe una respuesta breve, natural y en segunda persona. Elige tú "
+            "UN tema pendiente según lo que acaba de decir, y pregunta por él. "
+            "No le pidas un dato conocido. Escribe i=intake, q igual al tema elegido, "
+            "d={} y r con una pregunta clara. Estos son ejemplos de significado, "
+            "puedes expresarlos con tus palabras: "
+            + json.dumps({field: examples[field] for field in pending}, ensure_ascii=False)
+            + ". No inventes hechos ni prometas trabajo. No pidas datos privados."
+        )
+    elif not is_declaration_turn(fragments) or (revision and facts is None):
         instructions += "\n" + CONVERSATION_GUIDANCE
     if has_tentative_claim(fragments):
         instructions += ("\nUna posibilidad o condición sigue pendiente. Reconócela sin convertirla en un hecho "
@@ -540,9 +559,10 @@ def validated_reply(decision, facts, declarations, context, fragments, *, prior=
         prior_text = plain(prior.rsplit("¿", 1)[-1]) if "?" in prior else ""
         if (prior_text and asked_text == prior_text) or GENERIC_QUESTION.fullmatch(asked_text):
             return reject("generic_or_repeated_question")
-    if "?" in reply and (question == "none" or ((known.get(question) or question in actual)
-                                              and decision.i != "clarification")):
-        return reject("known_or_unlabeled_question")
+    if "?" in reply and question == "none":
+        return reject("unlabeled_question")
+    if "?" in reply and (known.get(question) or question in actual) and decision.i != "clarification":
+        return reject("known_question_" + question)
     if (reply.count("?") > 1 or (question != "none" and "?" not in reply)
             or re.search(r"[\u3400-\u9fff]", reply) or not acceptable_intake_draft(reply, facts)):
         return reject("intake_validation")
