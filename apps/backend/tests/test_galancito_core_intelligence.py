@@ -114,3 +114,29 @@ def test_new_contact_queues_local_model_without_fabricating_consent(network, mon
             assert row is not None
     finally:
         settings.cache_clear()
+
+
+def test_approximate_crew_is_known_without_inventing_exact_count():
+    from app.galancito_intake import conversation_fields, pending_professional_questions
+    facts = {"interest_type": "service_offer", "specialty": "Pintura",
+             "team_available": True, "workers": None,
+             "declared_context": {"crew_size": "más de 10 maestros"}}
+    assert conversation_fields(facts)["workers"]
+    assert "workers" not in pending_professional_questions(facts)
+    assert facts["workers"] is None
+
+
+def test_volunteered_professional_duration_preserves_approximation():
+    from app.galancito_intake import apply_intake
+    from test_galancito_curriculum_20 import blank_lead
+    lead = blank_lead()
+    apply_intake(lead, "Soy contratista hace más de 8 años", "")
+    assert lead.experience == "más de 8 años"
+
+
+def test_distinct_master_and_contractor_experience():
+    from app.galancito_intake import apply_intake
+    from test_galancito_curriculum_20 import blank_lead
+    lead = blank_lead()
+    apply_intake(lead, "Yo voy maestro yesero hace más de 15 años. Y contratista y con gente a cargo más de 8 años.", "")
+    assert "15 años" in lead.experience and "8 años" in lead.experience
