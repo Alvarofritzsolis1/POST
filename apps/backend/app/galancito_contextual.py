@@ -260,7 +260,20 @@ def latest_question(fragments):
     return ""
 
 
-def request_turn(context, fragments, *, revision="", policy="", accepted=()):
+def _pending_reply_topics(facts, accepted):
+    """A field already persisted or attributed must not be requested again."""
+    labels = {"experience": "experiencia en el oficio",
+              "availability": "disponibilidad para empezar",
+              "area": "comunas donde puede trabajar"}
+    profile_keys = {"experience": "experience", "availability": "availability",
+                    "area": "work_communes"}
+    declared = {field for field, _, _ in accepted}
+    pending = pending_professional_questions(facts) if facts is not None else None
+    return {field: label for field, label in labels.items()
+            if field not in declared and (pending is None or profile_keys[field] in pending)}
+
+
+def request_turn(context, fragments, *, revision="", policy="", accepted=(), facts=None):
     prefix = "Mensajes nuevos (única fuente para datos nuevos):\n"
     batch = json.dumps([item.text for item in fragments], ensure_ascii=False)
     known = ("Datos propios ya confirmados para este turno: "
@@ -291,11 +304,8 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
         )
         properties = {field: FORMAT["properties"][field] for field in ("i", "r", "q", "d")}
         if is_declaration_turn(fragments):
-            topics = {"experience": "cuánto tiempo lleva en su oficio",
-                      "availability": "desde cuándo está disponible",
-                      "area": "en qué comunas puede trabajar"}
             declared = {field for field, _, _ in accepted}
-            pending = {field: topic for field, topic in topics.items() if field not in declared}
+            pending = _pending_reply_topics(facts, accepted)
             properties["i"] = {"const": "intake" if declared - {"channel"} else "contact"}
             properties["q"] = {"enum": [*pending, "none"]}
             instructions += ("\nLa persona te presentó datos. No necesitas preguntarle qué proyecto busca. "
@@ -303,6 +313,20 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
                              + json.dumps(pending, ensure_ascii=False)
                              + ". Usa una sola pregunta sobre el mismo tema que q. Si no hace falta, agradece.")
         response_format = {**FORMAT, "required": ["i", "r", "q"], "properties": properties}
+    if facts is not None and is_declaration_turn(fragments) and (accepted or revision):
+        pending = _pending_reply_topics(facts, accepted)
+        if revision:
+            response_format = {**response_format, "properties": {
+                **response_format["properties"],
+                "i": {"enum": ["intake", "contact"]},
+                "q": {"enum": [*pending, "none"]},
+            }}
+        instructions += ("\nCampos que todavía puedes preguntar (no es un guion): "
+                         + json.dumps(pending, ensure_ascii=False)
+                         + ". No preguntes ningún campo fuera de esa lista. "
+                         "Si eliges q=none, escribe un reconocimiento útil sin interrogación. "
+                         "Si eliges un campo, formula una sola pregunta concreta en r, con ¿ y ?. "
+                         "Evita frases de formulario, menús y respuestas en primera persona del contratista.")
     if revision or not is_declaration_turn(fragments):
         instructions += "\n" + CONVERSATION_GUIDANCE
     if has_tentative_claim(fragments):
@@ -316,7 +340,7 @@ def request_turn(context, fragments, *, revision="", policy="", accepted=()):
         values = parsed.get("d", {}) if accepted and not revision else parsed["d"]
         if not isinstance(values, dict) or values.keys() - FORMAT["properties"]["d"]["properties"].keys():
             raise ValueError
-        if response_format is REPLY_FORMAT and values:
+        if (revision or response_format is REPLY_FORMAT) and values:
             raise ValueError
         declarations = []
         for field, value in values.items():
@@ -452,7 +476,12 @@ def reconcile_declarations(declarations):
     return sorted(result, key=lambda item: item[2].at)
 
 
-def validated_reply(decision, facts, declarations, context, fragments, *, prior=""):
+def validated_reply(decision, facts, declarations, context, fragments, *, prior="", rejections=None):
+    def reject(reason):
+        if rejections is not None:
+            rejections.append(reason)
+        return None
+
     actual = {field for field, value, _ in declarations if value}
     known = {
         "trade": facts.get("specialty") or facts.get("trades"),
@@ -471,53 +500,53 @@ def validated_reply(decision, facts, declarations, context, fragments, *, prior=
         reply = reply.split("?", 1)[0].strip() + "?"
     normalized_reply = plain(reply)
     if UNCONFIRMED_ACTION.search(normalized_reply) or SPECULATIVE_CLAIM.search(normalized_reply):
-        return None
+        return reject("unsupported_claim")
     question_text = latest_question(fragments)
     if (not declarations and not question_text and has_tentative_claim(fragments)
             and not PENDING_CONFIRMATION.search(normalized_reply)):
-        return None
+        return reject("tentative_claim")
     for part in fragments:
         normalized_input = plain(part.text)
         min_words = 3 if "?" in part.text else 4
         quoted_questions = re.findall(r"¿([^?]+)(?:\?|$)", part.text)
         if (len(normalized_input.split()) >= min_words and normalized_input == normalized_reply
                 or any(plain(question) == normalized_reply for question in quoted_questions)):
-            return None
+            return reject("echo")
     if re.match(r"^(?:(?:hola|buenas) )?(?:soy (?:un[oa]? )?(?:contratista|maestr[oa]|"
                 r"trabajador[ai]?|pintor[ai]?|especialista)|hago|trabajo de|me dedico|somos)\b",
                 normalized_reply):
-        return None
+        return reject("wrong_speaker")
     known_fields = {
         "trade": "specialty", "crew": "workers", "area": "work_communes", "team": "team_available",
         "contact": "contact_phone", **SCALARS,
     }
     asked = intake_question_fields(reply)
     if asked and (has_tentative_claim(fragments) or any(asks_for_explanation(part.text) for part in fragments)):
-        return None
+        return reject("intake_instead_of_explanation")
     if asked and question_text:
         intro = plain(reply.split("¿", 1)[0]) if "¿" in reply else ""
         if len(intro.split()) < 4 or decision.i in {"intake", "contact"}:
-            return None  # A bare intake question leaves the sender's actual request unanswered.
+            return reject("unanswered_question")
     if any(known_fields.get(field) in asked for field in actual
            if decision.i != "clarification"):
-        return None
+        return reject("repeated_attributed_field")
     detected = {field for field, key in known_fields.items() if key in asked}
     if (decision.i in {"intake", "contact"} and decision.q in {"area", "experience", "availability"}
             and detected != {decision.q}):
-        return None
+        return reject("question_field_mismatch")
     question = next(iter(detected)) if len(detected) == 1 else decision.q
     if "?" in reply:
         asked_text = plain(reply.rsplit("¿", 1)[-1])
         prior_text = plain(prior.rsplit("¿", 1)[-1]) if "?" in prior else ""
         if (prior_text and asked_text == prior_text) or GENERIC_QUESTION.fullmatch(asked_text):
-            return None
+            return reject("generic_or_repeated_question")
     if "?" in reply and (question == "none" or ((known.get(question) or question in actual)
                                               and decision.i != "clarification")):
-        return None
+        return reject("known_or_unlabeled_question")
     if (reply.count("?") > 1 or (question != "none" and "?" not in reply)
             or re.search(r"[\u3400-\u9fff]", reply) or not acceptable_intake_draft(reply, facts)):
-        return None
-    return grounded_reply(reply, context)
+        return reject("intake_validation")
+    return grounded_reply(reply, context) or reject("grounding")
 
 
 def verified_followup(decision, facts, fragments):

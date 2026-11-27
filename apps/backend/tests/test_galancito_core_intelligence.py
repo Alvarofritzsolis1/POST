@@ -210,3 +210,15 @@ def test_explicit_recovery_restores_only_cleared_non_refused_name(
                                 remote_id="synthetic-name-evidence", at=utcnow(), replay=True)
         assert lead.display_name == expected
         assert lead.name_opt_out is opt_out
+
+
+def test_contextual_reply_topics_exclude_persisted_and_new_fields():
+    from app.galancito_contextual import _pending_reply_topics, Fragment
+    from app.models import utcnow
+    fragment = Fragment("synthetic-field", utcnow(), "Puedo empezar mañana")
+    facts = {"experience": "7 años", "work_communes": ["Los Ángeles"],
+             "availability": "", "field_states": {}}
+    assert _pending_reply_topics(facts, []) == {"availability": "disponibilidad para empezar"}
+    assert _pending_reply_topics(facts, [("availability", "mañana", fragment)]) == {}
+    facts["field_states"]["availability"] = "rechazado_por_usuario"
+    assert _pending_reply_topics(facts, []) == {}

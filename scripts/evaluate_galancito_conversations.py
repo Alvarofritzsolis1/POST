@@ -303,6 +303,15 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                 "model_calls": case_model_calls, "turns": turns})
                 if real_local:
                     print(f'{case["id"]}: {("PASS" if results[-1]["passed"] else "FAIL")}', file=sys.stderr, flush=True)
+                    if not results[-1]["passed"]:
+                        # Synthetic evaluation: expose failed checks and reason codes, not contact values.
+                        print(json.dumps({"case": case["id"], "failed_turns": [
+                            {"turn": t["turn"], "checks": [k for k, ok in t["checks"].items() if not ok],
+                             "runs": [{"reply_origin": x.get("reply_origin"),
+                                       "fallback_reason": x.get("fallback_reason"),
+                                       "model_draft_selected": x.get("model_draft_selected")}
+                                      for x in t["runs"]]}
+                            for t in turns if not all(t["checks"].values())]}), file=sys.stderr, flush=True)
             settings.cache_clear()
         engine.dispose()
     report = {"dataset": dataset.name, "conversations": len(cases), "turns": len(measurements),

@@ -813,7 +813,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
                     policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
                     candidate = infer(db, lambda: contextual.request_turn(
                         context, fragments, revision=revision, policy=policy,
-                        accepted=contextual.reconcile_declarations(declarations)))
+                        accepted=contextual.reconcile_declarations(declarations), facts=facts))
             except (RuntimeError, ValueError) as exc:
                 failure = type(exc).__name__
                 candidate, selected = None, []
@@ -837,7 +837,10 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
         if decision is None:
             decision = candidate
         confirmed = contextual.reconcile_declarations(declarations)
-        answer = contextual.validated_reply(candidate, facts, confirmed, grounding, fragments, prior=prior)
+        rejected = []
+        answer = contextual.validated_reply(candidate, facts, confirmed, grounding, fragments, prior=prior, rejections=rejected)
+        if rejected:
+            failure = "draft_" + rejected[0]
         if candidate.i == "human":
             if any(wants_human(part.text) for part in fragments):
                 return (candidate, confirmed, answer), "ai", timings, None
