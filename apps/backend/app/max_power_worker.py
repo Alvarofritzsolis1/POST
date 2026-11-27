@@ -26,7 +26,7 @@ from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, Trai
 from .galancito_training_model import TrainingModel, isolated_model_resident
 from .max_power_decisions import QWEN_MEMORY_REASON, QWEN_MIN_RAM_MB, QWEN_RESIDENT_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
-from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial, exclusive_qwen_active
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
 from .galancito_model_config import QWEN_2B
@@ -276,6 +276,7 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
         MaxPowerState.enabled.is_(True)).limit(12)))
     if not org_ids:
         return
+    exclusive = exclusive_qwen_active(db)
     snapshot = {**(sampler.sample() if sampled is None else sampled),
                 "cpu_pressure_avg10": _pressure("cpu"),
                 "memory_pressure_avg10": _pressure("memory"),
@@ -310,6 +311,9 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
                 db.execute(delete(MaxPowerEvent).where(MaxPowerEvent.org_id == row.org_id,
                     MaxPowerEvent.event == RESOURCE_EVENT,
                     MaxPowerEvent.created_at < now - timedelta(days=7)))
+        if exclusive:
+            set_wait(row, now, "cpu_neural_training", "Turno exclusivo de Qwen; prácticas automáticas detenidas", 10)
+            continue
         if not row.active_round_id:
             # Recover a committed queue after interruption between start() and checkpoint.
             # Recover active work first, then the oldest terminal round with no
@@ -467,6 +471,7 @@ def neural_intent(db, task_busy, model_download):
         or_(TrainingRound.config["orchestrator"].as_string().is_(None),
             TrainingRound.config["orchestrator"].as_string()!="max_power")).limit(1)))
     eligible = bool(row and owner and owner.enabled and owner.role == "admin" and owner.org_id == org
+                    and not exclusive_qwen_active(db)
                     and not task_busy and not model_download and not manual_busy
                     and not cpu_execution_blocks(db, utcnow()))
     waiting_for_messenger = eligible and bool(messenger_busy(db) or messenger_recent(db))
@@ -510,6 +515,7 @@ def main():
                 with SessionLocal() as db:
                     enabled = db.scalar(select(MaxPowerState.org_id).where(
                         MaxPowerState.enabled.is_(True)).limit(1)) is not None
+                    exclusive = exclusive_qwen_active(db)
                 sampled = sampler.sample() if enabled else None
                 if sampled is not None:
                     with SessionLocal.begin() as db:
@@ -527,7 +533,7 @@ def main():
                     with SessionLocal() as db:
                         requested=neural_intent(db,task is not None,
                             bool(local_model.download and local_model.download.is_alive()))
-                    if task is None and not requested:
+                    if task is None and not requested and not exclusive:
                         task_slot=neural.lock()
                 reserved=coordinate and task is None and (requested or task_slot is None)
                 with SessionLocal() as db:
@@ -536,7 +542,7 @@ def main():
                 Path("/tmp/max_power_controller_heartbeat").touch()
                 with SessionLocal() as db:
                     neural_busy = cpu_execution_blocks(db, utcnow()) if enabled else False
-                if enabled and task is None and not neural_busy and not reserved:
+                if enabled and not exclusive and task is None and not neural_busy and not reserved:
                     with SessionLocal() as db:
                         due = db.scalar(select(MaxPowerMessengerTrial.id).join(
                             MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
