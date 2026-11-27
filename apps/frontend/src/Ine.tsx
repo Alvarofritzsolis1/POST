@@ -605,9 +605,9 @@ export default function Ine({ user, version, onBack, logout }: {
         <section className="ine-simple-chart">
           <div className="ine-chart-head"><span className="ine-eyebrow">RESPONSABLES</span>
             <h3>Avance por supervisor</h3><p>Comparación de las obras agrupadas por el supervisor indicado en el Excel.</p></div>
-          {responsible.length ? <div className="ine-responsible-list">{responsible.slice(0, 7).map(item =>
+          {responsible.length ? <div className="ine-responsible-list">{responsible.map(item =>
             <div className="ine-responsible-row" key={item.name}>
-              <div><strong title={item.name}>{item.name}</strong>
+              <div><button type="button" className="ine-table-edit" title={item.name} onClick={()=>{setSearch(item.name==="Sin responsable definido"?"":item.name);setRowFilter("all");document.getElementById("ine-all-rows")?.scrollIntoView({block:"nearest"});}}>{item.name}</button>
                 <small>{item.pending ? item.pending + " pendiente(s)" : "Completo"}</small></div>
               <div className="ine-responsible-track"><span style={{width:item.progress+"%"}}/></div>
               <b>{item.progress}%</b>
@@ -698,7 +698,7 @@ export default function Ine({ user, version, onBack, logout }: {
                     if(event.key==="Enter"){event.preventDefault();const next=fields[index+1];
                       if(next) document.getElementById("ine-cell-"+rowKey(row)+"-"+next.key)?.focus();
                       else if(dirty(row)&&!busy) void saveRow(row);}
-                  }}/> : row[col.key]===null?"—":fmtNumber(row[col.key])}</td>)}
+                  }}/> : row[col.key]===null?"—":fmtNumber(row[col.key]??0)}</td>)}
               <td><div className="ine-ux-actions">{row.editable ? editing ? <>
                 <button type="button" className="ine-save" disabled={!!busy || !dirty(row)} onClick={()=>void saveRow(row)}>
                   <Save size={14}/>{busy===rowKey(row)?"Guardando…":"Guardar"}</button>
@@ -714,7 +714,7 @@ export default function Ine({ user, version, onBack, logout }: {
       </section>
     </>}
 
-    {tab === "analisis" && !loading && period && <IneAnalytics key={period} period={period} rows={rows} graph={graph} onMonth={gotoMonth}/>}
+    {tab === "analisis" && !loading && period && <IneAnalytics key={period.slice(0,4)} period={period} rows={rows} graph={graph} onMonth={gotoMonth}/>}
     {tab === "historico" && <section className="ine-panel ine-history-library">
       <div className="ine-section-head"><div><span className="ine-eyebrow">CONSULTA DE SOLO LECTURA</span>
         <h2>Histórico del Excel</h2><p>Consulta cualquier hoja original. No se modifican sus cifras ni fórmulas.</p></div>
@@ -804,31 +804,35 @@ function observed(row: Counts, metric: Metric) {
 function IneAnalytics({period,rows,graph,onMonth}: {period:string;rows:SheetRow[];graph:MonthSummary[];onMonth:(period:string)=>void}) {
   const [metric,setMetric]=useState<Metric>("workers");
   const [site,setSite]=useState("");
-  const [history,setHistory]=useState<Record<string,number|null> | null>(null);
+  const [history,setHistory]=useState<Record<string,SheetRow[]> | null>(null);
   const [historyError,setHistoryError]=useState("");
-  const selected=rows.find(r=>rowKey(r)===site);
   const year=period.slice(0,4);
+  const identity=(r:SheetRow)=>r.site_id ? "site:"+r.site_id : "name:"+r.site_name;
+  const allSites=Array.from(new Map([...Object.values(history||{}).flat(),...rows].map(r=>[identity(r),r])).values()).sort((a,b)=>a.site_name.localeCompare(b.site_name,"es-CL"));
+  const selected=allSites.find(r=>identity(r)===site);
   useEffect(()=>{
     let active=true; setHistory(null); setHistoryError("");
-    if(!selected)return;
     const periods=Array.from({length:12},(_,i)=>year+"-"+String(i+1).padStart(2,"0"));
     void Promise.all(periods.map(async target=>{
       const result=await request<{rows:SheetRow[]}>("/ine/rows?period="+encodeURIComponent(target));
-      const matches=result.rows.filter(row=>selected.site_id ? row.site_id===selected.site_id : !row.site_id && row.site_name===selected.site_name);
-      return [target,matches.length===1?observed(matches[0],metric):null] as const;
+      return [target,result.rows] as const;
     })).then(items=>{if(active)setHistory(Object.fromEntries(items));})
       .catch(e=>{if(active)setHistoryError(errText(e));});
     return()=>{active=false;};
-  },[selected,year,metric]);
+  },[year]);
   const totals=fields.map(f=>({ ...f, value: rows.reduce((n,r)=>n+(r[f.key]??0),0), known:rows.filter(r=>r[f.key]!==null).length }));
   const workers=totals[3].value+totals[4].value, contractors=totals[0].value+totals[1].value+totals[2].value;
-  const ranked=rows.map(row=>({name:row.site_name,key:rowKey(row),value:observed(row,metric)}))
+  const ranked=rows.map(row=>({name:row.site_name,key:identity(row),value:observed(row,metric)}))
     .filter((item):item is {name:string;key:string;value:number}=>item.value!==null).sort((a,b)=>b.value-a.value);
   const peak=ranked[0];
   const points=Array.from({length:12},(_,i)=>{
     const target=year+"-"+String(i+1).padStart(2,"0");
-    const item=graph.find(m=>m.period===target);
-    return {period:target,label:monthsShort[i],value:site ? history?.[target]??null : item?.reported ? sumFields(item,metricFields[metric]) : null,coverage:item?.reported??0};
+    const monthRows=target===period ? rows : history?.[target]||[];
+    const matches=site?monthRows.filter(r=>identity(r)===site):monthRows;
+    const known=matches.filter(r=>metricFields[metric].some(key=>r[key]!==null));
+    const value=site ? matches.length===1?observed(matches[0],metric):null :
+      known.length ? known.reduce((sum,r)=>sum+sumFields(r,metricFields[metric]),0):null;
+    return {period:target,label:monthsShort[i],value,coverage:known.length};
   });
   const scale=Math.max(1,...points.map(p=>p.value??0));
   const current=points.find(p=>p.period===period);
@@ -846,7 +850,7 @@ function IneAnalytics({period,rows,graph,onMonth}: {period:string;rows:SheetRow[
     </div>
     <div className="ine-ux-insights"><strong>Lectura de los datos</strong>
       <p>{peak ? peak.name+" registra la mayor cantidad de "+metricLabels[metric].toLowerCase()+" ("+fmtNumber(peak.value)+"), entre "+observedCount+" obras con esta cifra completa." : "No hay cifras completas para comparar obras en este indicador."}</p>
-      {knownContractors && contractors>0 && <p>Los independientes representan {Math.round(totals[2].value/contractors*100)}% de los contratistas registrados (CCT + CESP + IND). No equivale al porcentaje oficial de independientes de la planilla.</p>}
+      {totals[2].known>0 && knownContractors && contractors>0 && <p>Los independientes representan {Math.round(totals[2].value/contractors*100)}% de los contratistas registrados (CCT + CESP + IND). No equivale al porcentaje oficial de independientes de la planilla.</p>}
     </div>
     <div className="ine-ux-analysis-grid">
       <section className="ine-simple-chart"><h3>Composición de contratistas</h3>
@@ -859,9 +863,9 @@ function IneAnalytics({period,rows,graph,onMonth}: {period:string;rows:SheetRow[
     <section className="ine-simple-chart ine-ux-trend">
       <div className="ine-ux-chart-head"><div><h3>Evolución {year}</h3><p>{selected?selected.site_name:"Todas las obras · cifras registradas"}</p></div>
         <label>Indicador<select value={metric} onChange={e=>setMetric(e.target.value as Metric)}>{Object.entries(metricLabels).map(([k,label])=><option key={k} value={k}>{label}</option>)}</select></label>
-        <label>Obra<select value={site} onChange={e=>setSite(e.target.value)}><option value="">Todas las obras</option>{rows.map(r=><option key={rowKey(r)} value={rowKey(r)}>{r.site_name}</option>)}</select></label>
+        <label>Obra<select value={site} onChange={e=>setSite(e.target.value)}><option value="">Todas las obras</option>{allSites.map(r=><option key={identity(r)} value={identity(r)}>{r.site_name}</option>)}</select></label>
       </div>
-      {site && !history && !historyError ? <p role="status">Consultando evolución…</p> : historyError ? <p role="alert">{historyError}</p> :
+      {!history && !historyError ? <p role="status">Consultando evolución…</p> : historyError ? <p role="alert">{historyError}</p> :
       <><div className="ine-ux-line-scroll"><svg viewBox="0 0 720 245" role="img" aria-label={"Evolución anual de "+metricLabels[metric]}>
         {[0,.25,.5,.75,1].map(f=><g key={f}><line x1="45" x2="700" y1={200-f*165} y2={200-f*165} stroke="#dce5ec"/><text x="38" y={204-f*165} textAnchor="end" fontSize="11" fill="#617589">{fmtNumber(Math.round(scale*f))}</text></g>)}
         {points.map((p,i)=>{const prev=points[i-1];const x=50+i*58;const y=200-(p.value??0)/scale*165;return <g key={p.period}>
